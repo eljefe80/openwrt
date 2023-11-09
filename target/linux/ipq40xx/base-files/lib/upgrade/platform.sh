@@ -222,6 +222,7 @@ platform_do_upgrade() {
 		;;
 	netgear,rbr40|\
 	netgear,rbs40|\
+	netgear,rbs40v|\
 	netgear,rbr50|\
 	netgear,rbs50|\
 	netgear,srr60|\

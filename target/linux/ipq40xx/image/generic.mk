@@ -54,6 +54,12 @@ define Build/append-rootfshdr
 	dd if=$@.new bs=64 count=1 >> $@.$1
 endef
 
+define Build/boot-script-rbs40v
+	$(TOPDIR)/scripts/mkits-rbs40v-fit.sh $@ config@ap.dk07.1-c1
+	mkimage -f $@.its $@
+	rm $@.scr $@.its
+endef
+
 define Build/copy-file
 	cat "$(1)" > "$@"
 endef
@@ -1036,7 +1042,39 @@ define Device/netgear_rbs40
 	DEVICE_VARIANT := v1
 	NETGEAR_BOARD_ID := RBS40
 endef
+
 TARGET_DEVICES += netgear_rbs40
+
+define Device/netgear_rbs40v
+	$(call Device/DniImage)
+	$(call Device/UbiFit)
+	NETGEAR_BOARD_ID := U12H380T01_NETGEAR
+#	NETGEAR_BOARD_ID := U12H380T99_NETGEAR
+	KERNEL_SIZE := 3932160
+	ROOTFS_SIZE := 32243712
+	IMAGE_SIZE := 36175872
+	SOC := qcom-ipq4019
+	DEVICE_VENDOR := NETGEAR
+	KERNEL_IN_UBI := 1
+        KERNEL_INSTALL := 1
+        BLOCKSIZE := 128k
+        PAGESIZE := 2048
+	IMAGES += factory.chk
+	IMAGE/factory.img := append-kernel | pad-offset 128k 64 | \
+		append-uImage-fakehdr filesystem | pad-to $$$$(KERNEL_SIZE) | \
+		append-rootfs | pad-rootfs | netgear-dni
+	IMAGE/factory2.chk := append-ubi | qsdk-ipq-factory-nand-rbs40v | netgear-chk
+	IMAGE/factory.chk := append-ubi | boot-script-rbs40v | netgear-chk
+	IMAGE/sysupgrade.bin/squashfs := append-rootfs | pad-to 64k | \
+		sysupgrade-tar rootfs=$$$$@ | append-metadata
+	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct ath10k-firmware-qca9887-ct \
+		ath10k-firmware-qca988x-ct kmod-usb-audio kmod-bluetooth \
+		kmod-ipq4019-snd
+	DEVICE_MODEL := RBS40V
+	DEVICE_VARIANT := v1 ap.dk07.1-c1
+	DEVICE_DTS_CONFIG := config@ap.dk07.1-c1
+endef
+TARGET_DEVICES += netgear_rbs40v
 
 define Device/netgear_rbx50
 	$(call Device/netgear_orbi)
