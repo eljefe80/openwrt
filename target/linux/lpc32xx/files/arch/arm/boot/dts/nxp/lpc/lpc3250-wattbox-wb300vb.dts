@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * SnapAV WattBox WB-300VB-IP-5 (and sibling WB-300/700 IP-series units)
+ *
+ * Reverse-engineered from firmware WB10.B929 (2022-12-06): a U-Boot legacy
+ * uImage wrapping a Linux 2.6.34 zImage, `console=/dev/null mem=32M` boot
+ * args, and a CramFS rootfs. No physical hardware access (no serial console,
+ * no board photo/silkscreen, no vendor schematic) was available while
+ * writing this file — every value below is either lifted directly from the
+ * firmware/protocol reverse-engineering (marked CONFIRMED) or copied from
+ * the closest known reference design as a starting point (marked
+ * UNVERIFIED). Do not treat UNVERIFIED values as safe to flash blind;
+ * resolve them against real hardware first (see notes at each node).
+ */
+
+/dts-v1/;
+#include "lpc32xx.dtsi"
+
+/ {
+	model = "SnapAV WattBox WB-300VB-IP-5";
+	compatible = "snapav,wattbox-wb300vb", "nxp,lpc3250";
+
+	/* CONFIRMED: `mem=32M` in the vendor kernel's boot args. */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x2000000>;
+	};
+
+	/*
+	 * UNVERIFIED: no GPIO/LED/button pin assignments survive in the
+	 * firmware (they lived in a pre-DT board file that wasn't part of
+	 * what we extracted). The outlet relays themselves are NOT GPIOs on
+	 * this SoC at all -- they're switched by a separate PIC
+	 * microcontroller over /dev/ttyS1 ("T%02dY\r" / "T%02dN\r", see the
+	 * wattbox/control/libtasks.so decompiles). Any SoC-side LED here
+	 * would only be a status/heartbeat indicator, if one exists at all.
+	 * Left out entirely rather than guessing a pin -- driving the wrong
+	 * GPIO on first boot is exactly the kind of mistake that's cheap to
+	 * avoid and expensive to recover from. Add real gpio-leds/gpio-keys
+	 * nodes here once pins are traced with a multimeter against a
+	 * running (vendor-firmware) unit.
+	 */
+};
+
+/*
+ * CONFIRMED (from wattbox_decompiled.c): the SoC talks to the outlet-control
+ * PIC over a UART at 2400 baud, raw/CS8, referred to as /dev/ttyS1 by the
+ * vendor userspace. Which *physical* LPC32x0 UART instance that maps to is
+ * UNVERIFIED -- the vendor's 2.6.34 board file could have registered UARTs
+ * in any order, and it isn't guaranteed to match the upstream DT-based
+ * driver's probe order. All standard UARTs are enabled below so this can be
+ * resolved empirically on real hardware: boot, then from each enabled
+ * /dev/ttySx send "T01Y\r" and listen for the relay 1 click (or query
+ * /var/wattbox/remote_trigger for the button-press path from processpkt's
+ * /dev/ttyS2 candidate). No risk in enabling unused UARTs -- do this before
+ * ever attempting to control real hardware over the wrong port.
+ */
+&uart1 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&uart3 {
+	status = "okay";
+};
+
+&uart4 {
+	status = "okay";
+};
+
+/*
+ * UNVERIFIED but high-confidence: uart5 is the LPC32x0's conventional
+ * default console (see the "UART5 first ... ttyS0" comment in
+ * lpc32xx.dtsi itself, matched by both known reference boards). The
+ * original firmware's console was set to /dev/null on the kernel command
+ * line, so this was never observed directly -- if nothing prints at
+ * 115200 8N1 here on power-up, that's the first thing to re-check.
+ */
+&uart5 {
+	status = "okay";
+};
+
+&uart6 {
+	status = "okay";
+};
+
+&uart7 {
+	status = "okay";
+};
+
+/*
+ * CONFIRMED: this is a LAN-connected device (the whole raw-Ethernet
+ * discovery/config protocol and the HTTP UI depend on it). RMII + IRAM
+ * descriptors is the standard LPC32x0 wiring and what both known
+ * reference designs use -- UNVERIFIED for this specific board, but very
+ * unlikely to be anything else given the SoC only has the one MAC.
+ */
+&mac {
+	phy-mode = "rmii";
+	use-iram;
+	status = "okay";
+};
+
+/*
+ * CONFIRMED: rootfs is on NAND (`root=/dev/mtdblock2 rootfstype=cramfs`
+ * in the vendor boot args -- swapped to squashfs here). UNVERIFIED: SLC
+ * vs. MLC controller, and every timing/partition number below.
+ *
+ * SLC is assumed because it's what both known LPC3250 reference boards
+ * (phy3250, ea3250) use, and it's the more common/cheaper choice for a
+ * simple embedded design like this. If NAND isn't detected on first boot,
+ * try &mlc instead -- see lpc32xx.dtsi, which explicitly notes "Enable
+ * either SLC or MLC" (this SoC only has pins for one at a time).
+ *
+ * The timing parameters (the nxp,w- and nxp,r-prefixed properties) are
+ * copied verbatim from the
+ * ea3250 reference board as a conservative starting point -- they are a
+ * property of the *NAND chip*, not the SoC, and must be re-derived from
+ * the actual chip's datasheet once its part number is known (desolder-free
+ * option: many SLC NAND chips answer a JEDEC ID read that `nanddump`/
+ * `mtdinfo` will report once this controller successfully probes).
+ *
+ * Partition table: the *only* hard fact from the firmware image itself is
+ * that the CramFS rootfs starts at file offset 0x1A0000 (confirmed via
+ * binwalk + magic-number scan of WB10.B929.bin) and that image is exactly
+ * 3,932,160 bytes -- which is precisely 3840 * 1024-byte firmware-upload
+ * chunks, a strong cross-check that the *whole* image (kernel partition +
+ * rootfs partition) is what gets transferred, but says nothing about the
+ * NAND chip's total size or where partition 0 (bootloader) starts in flash
+ * (the OTA update almost certainly never touches U-Boot itself). Do not
+ * treat the sizes below as flash-verified -- they're a placeholder large
+ * enough to hold what we know must fit, nothing more. Before flashing
+ * anything real: boot a TFTP-loaded initramfs kernel with this &slc node
+ * enabled but root NOT mounted from NAND, then read the actual chip
+ * geometry from /proc/mtd or `mtdinfo` and fix these numbers first.
+ */
+&slc {
+	status = "okay";
+
+	nxp,wdr-clks = <14>;
+	nxp,wwidth = <260000000>;
+	nxp,whold = <104000000>;
+	nxp,wsetup = <200000000>;
+	nxp,rdr-clks = <14>;
+	nxp,rwidth = <34666666>;
+	nxp,rhold = <104000000>;
+	nxp,rsetup = <200000000>;
+	nand-on-flash-bbt;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* UNVERIFIED: bootloader + environment, size unknown. */
+		mtd0@0 {
+			label = "wattbox-uboot";
+			reg = <0x00000000 0x00100000>;
+			read-only;
+		};
+
+		/* UNVERIFIED offset/size: sized to comfortably hold the
+		 * ~1.66MB kernel payload seen in the firmware image. */
+		mtd1@100000 {
+			label = "wattbox-kernel";
+			reg = <0x00100000 0x00200000>;
+		};
+
+		/* UNVERIFIED offset/size: sized to comfortably hold the
+		 * 2,228,224-byte CramFS seen in the firmware image, plus
+		 * headroom for overlayfs/JFFS2 if this is repurposed as a
+		 * squashfs+overlay rootfs. */
+		mtd2@300000 {
+			label = "wattbox-rootfs";
+			reg = <0x00300000 0x00d00000>;
+		};
+	};
+};
