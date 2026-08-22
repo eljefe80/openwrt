@@ -1,0 +1,43 @@
+From: Jeff Williams <jeff@wdwconsulting.net>
+Date: Thu, 21 Aug 2026 23:10:00 -0700
+Subject: [PATCH] gpio: lpc32xx: select GPIO function for GPIO_00..05 on output
+
+The LPC32xx has no pinctrl driver, and pins GPIO_00..GPIO_05 are muxed
+with alternate functions (SSEL0/1, etc.) selected via the P2_MUX
+register. When the bootloader leaves such a pin in its alternate
+function, the gpiolib output writes (P3_OUTP) never reach the pin, so a
+consumer driving the line as a GPIO has no effect.
+
+This breaks SPI with a GPIO chip-select: on the SnapAV WattBox the SPI
+NOR chip-select is GPIO_05, which resets to the SSEL0 function; the
+mainline spi-pl022 gpio-CS then never selects the flash and spi-nor
+reads back all-0xff JEDEC id, even though clock, mode and CS direction
+are all correct.
+
+Clear the pin's P2_MUX bit when it is requested as an output so the
+GPIO function actually drives the pad. This matches what the vendor
+bootloader does before bit-banging these lines.
+
+Signed-off-by: Jeff Williams <jeff@wdwconsulting.net>
+---
+ drivers/gpio/gpio-lpc32xx.c |    9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+--- a/drivers/gpio/gpio-lpc32xx.c
++++ b/drivers/gpio/gpio-lpc32xx.c
+@@ -325,6 +325,15 @@ static int lpc32xx_gpio_dir_output_p3(st
+ {
+ 	struct lpc32xx_gpio_chip *group = gpiochip_get_data(chip);
+ 
++	/*
++	 * GPIO_00..GPIO_05 share pins with alternate functions (SSEL0/1, ...)
++	 * selected via P2_MUX. This SoC has no pinctrl driver, so if the
++	 * bootloader left the pin in its alternate function, GPIO output writes
++	 * never reach the pin (observed: SPI gpio-CS on GPIO_05 muxed as SSEL0
++	 * -> chip never selected -> spi-nor reads 0xff). Force GPIO function.
++	 */
++	gpreg_write(group, (1 << pin), LPC32XX_GPIO_P2_MUX_CLR);
++
+ 	__set_gpio_level_p3(group, pin, value);
+ 	__set_gpio_dir_p3(group, pin, 0);
+ 
