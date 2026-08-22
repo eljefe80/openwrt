@@ -1795,6 +1795,28 @@ define Device/gatonetworks_gdsp
 endef
 TARGET_DEVICES += gatonetworks_gdsp
 
+define Device/glinet_gl-be10000
+  DEVICE_VENDOR := GL.iNet
+  DEVICE_MODEL := GL-BE10000
+  DEVICE_DTS := mt7987a-glinet-gl-be10000
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_DTC_FLAGS := --pad 4096
+  DEVICE_DTS_LOADADDR := 0x4ff00000
+  DEVICE_PACKAGES := mt7987-2p5g-phy-firmware kmod-mt7996-233-firmware kmod-hwmon-pwmfan kmod-usb3
+  UBINIZE_OPTS := -E 5
+  BLOCKSIZE := 256k
+  PAGESIZE := 4096
+  IMAGE_SIZE := 482304k
+ifeq ($(IB),)
+ifneq ($(CONFIG_TARGET_ROOTFS_INITRAMFS),)
+  ARTIFACTS := initramfs-factory.ubi
+  ARTIFACT/initramfs-factory.ubi := append-image-stage initramfs-kernel.bin | ubinize-kernel
+endif
+endif
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += glinet_gl-be10000
+
 define Device/glinet_gl-mt2500
   DEVICE_VENDOR := GL.iNet
   DEVICE_MODEL := GL-MT2500
@@ -2587,18 +2609,47 @@ define Device/mercusys_mr80x-v3
 endef
 TARGET_DEVICES += mercusys_mr80x-v3
 
-define Device/mercusys_mr85x
+define Device/mercusys_mr85x-common
   DEVICE_VENDOR := MERCUSYS
   DEVICE_MODEL := MR85X
-  DEVICE_DTS := mt7981b-mercusys-mr85x
   DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware kmod-phy-airoha-en8811h swconfig kmod-switch-rtl8367s
+  DEVICE_PACKAGES := kmod-dsa-rtl8365mb kmod-mt7915e \
+	kmod-mt7981-firmware kmod-phy-airoha-en8811h mt7981-wo-firmware
   UBINIZE_OPTS := -E 5
   BLOCKSIZE := 128k
   PAGESIZE := 2048
+endef
+
+define Device/mercusys_mr85x
+  DEVICE_DTS := mt7981b-mercusys-mr85x
+  $(call Device/mercusys_mr85x-common)
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  DEVICE_COMPAT_VERSION := 1.1
+  DEVICE_COMPAT_MESSAGE := Ethernet port names have been updated due to \
+	DSA conversion.
 endef
 TARGET_DEVICES += mercusys_mr85x
+
+define Device/mercusys_mr85x-ubi
+  DEVICE_VARIANT := (UBI)
+  DEVICE_DTS := mt7981b-mercusys-mr85x-ubi
+  $(call Device/mercusys_mr85x-common)
+  KERNEL_IN_UBI := 1
+  UBOOTENV_IN_UBI := 1
+  IMAGES := sysupgrade.itb
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  KERNEL := kernel-bin | lzma
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | \
+	pad-to 64k
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata
+  ARTIFACTS := bl31-uboot.fip preloader.bin
+  ARTIFACT/bl31-uboot.fip := mt7981-bl31-uboot mercusys_mr85x
+  ARTIFACT/preloader.bin := mt7981-bl2 spim-nand-ubi-ddr3-1866
+endef
+TARGET_DEVICES += mercusys_mr85x-ubi
 
 define Device/mercusys_mr90x-v1
   DEVICE_VENDOR := MERCUSYS
