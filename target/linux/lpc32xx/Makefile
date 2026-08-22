@@ -7,7 +7,11 @@ include $(TOPDIR)/rules.mk
 ARCH:=arm
 BOARD:=lpc32xx
 BOARDNAME:=NXP LPC32x0
-FEATURES:=squashfs nand dt gpio rtc
+# 32 MB RAM / small NOR: DEVICE_TYPE=basic drops the router default package set
+# (dnsmasq/firewall4/nftables/ppp/odhcp*) so the initramfs rootfs fits in RAM;
+# small_flash drops procd-ujail. Leaves busybox+procd+netifd(DHCP)+dropbear+mtd.
+FEATURES:=squashfs nand dt gpio rtc small_flash
+DEVICE_TYPE:=basic
 SUBTARGETS:=generic
 CPU_TYPE:=arm926ej-s
 

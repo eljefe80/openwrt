@@ -1,0 +1,23 @@
+. /lib/functions.sh
+. /lib/functions/uci-defaults.sh
+. /lib/functions/system.sh
+
+board_config_update
+
+ucidef_set_interface_lan 'eth0'
+
+# This board stores no MAC address (the LPC32xx SoC has none in HW/OTP and the
+# NOR carries none), so the mainline lpc_eth driver falls back to a fresh
+# random MAC on every boot -- which churns the DHCP lease across reboots.
+# Derive a stable, locally-administered MAC from the LPC32xx unique chip ID,
+# exposed to userspace as the /proc/cpuinfo "Serial". This keeps the image
+# fully generic (no per-unit value baked in) while giving each unit a stable
+# identity. Mirrors macaddr_generate_from_mmc_cid().
+soc_serial=$(sed -n 's/^Serial[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo)
+if [ -n "$soc_serial" ]; then
+	mac_base=$(macaddr_canonicalize "$(printf '%s' "$soc_serial" | sha256sum | dd bs=1 count=12 2>/dev/null)")
+	mac=$(macaddr_unsetbit_mc "$(macaddr_setbit_la "$mac_base")")
+	[ -n "$mac" ] && ucidef_set_network_device_mac eth0 "$mac"
+fi
+
+board_config_flush

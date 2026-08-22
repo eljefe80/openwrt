@@ -4,13 +4,21 @@
  *
  * Reverse-engineered from firmware WB10.B929 (2022-12-06): a U-Boot legacy
  * uImage wrapping a Linux 2.6.34 zImage, `console=/dev/null mem=32M` boot
- * args, and a CramFS rootfs. No physical hardware access (no serial console,
- * no board photo/silkscreen, no vendor schematic) was available while
- * writing this file — every value below is either lifted directly from the
- * firmware/protocol reverse-engineering (marked CONFIRMED) or copied from
- * the closest known reference design as a starting point (marked
- * UNVERIFIED). Do not treat UNVERIFIED values as safe to flash blind;
- * resolve them against real hardware first (see notes at each node).
+ * args, and a CramFS rootfs.
+ *
+ * 2026-08-18 UPDATE: a live root shell was obtained on a real unit
+ * (10.203.254.48) over telnet, and the hardware bring-up checklist was run
+ * against the running stock firmware (read-only, no flash writes). Values
+ * previously guessed are now measured; the sources are marked below as:
+ *   MEASURED   -- read directly from /proc, /sys, /proc/iomem on the device.
+ *   CONFIRMED  -- proven from the firmware/protocol reverse-engineering.
+ *   UNVERIFIED -- still a best-effort guess; do not treat as flash-safe.
+ * See ~/share/projects/wb-300VB-IP-5/bringup-results-2026-08-18.md.
+ *
+ * The single biggest correction: this board has NO NAND. It boots from a
+ * memory-mapped parallel NOR on the LPC32xx EMC (external memory
+ * controller), and carries a second, SPI NOR chip for its writable log
+ * store. The old &slc NAND node was wrong and has been removed.
  */
 
 /dts-v1/;
@@ -20,49 +28,65 @@
 	model = "SnapAV WattBox WB-300VB-IP-5";
 	compatible = "snapav,wattbox-wb300vb", "nxp,lpc3250";
 
-	/* CONFIRMED: `mem=32M` in the vendor kernel's boot args. */
+	/*
+	 * MEASURED: /proc/tty/driver/serial + /proc/iomem show exactly three
+	 * wired UARTs on the stock kernel, and they enumerate in this order:
+	 *   ttyS0 = uart5 @ 0x40090000 (idle -- the physical console header)
+	 *   ttyS1 = uart3 @ 0x40080000 (busy both ways -- the outlet-PIC link)
+	 *   ttyS2 = uart4 @ 0x40088000 (TX only -- RS-232 passthrough)
+	 * Pin the same numbering here so vendor-userspace assumptions about
+	 * /dev/ttyS1 (the PIC link, see below) still hold under mainline.
+	 */
+	aliases {
+		serial0 = &uart5;
+		serial1 = &uart3;
+		serial2 = &uart4;
+	};
+
+	/*
+	 * MEASURED: stock boots with `console=/dev/null`, so nothing was ever
+	 * emitted on the header. uart5 (ttyS0) is idle (tx:0 rx:0) -- the most
+	 * likely physical console pinout. Baud is UNVERIFIED; 115200 is the
+	 * LPC32xx convention. If nothing prints on first boot, this line and
+	 * the uart5 pinout are the first things to re-check.
+	 */
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	/* MEASURED: /proc/meminfo + /proc/iomem "System RAM 0x80000000-0x81ffffff",
+	 * boot arg `mem=32M`. 32 MB DDR at 0x80000000. */
 	memory@80000000 {
 		device_type = "memory";
 		reg = <0x80000000 0x2000000>;
 	};
 
 	/*
-	 * UNVERIFIED: no GPIO/LED/button pin assignments survive in the
-	 * firmware (they lived in a pre-DT board file that wasn't part of
-	 * what we extracted). The outlet relays themselves are NOT GPIOs on
-	 * this SoC at all -- they're switched by a separate PIC
-	 * microcontroller over /dev/ttyS1 ("T%02dY\r" / "T%02dN\r", see the
-	 * wattbox/control/libtasks.so decompiles). Any SoC-side LED here
-	 * would only be a status/heartbeat indicator, if one exists at all.
-	 * Left out entirely rather than guessing a pin -- driving the wrong
-	 * GPIO on first boot is exactly the kind of mistake that's cheap to
-	 * avoid and expensive to recover from. Add real gpio-leds/gpio-keys
-	 * nodes here once pins are traced with a multimeter against a
-	 * running (vendor-firmware) unit.
+	 * MEASURED that they exist, UNVERIFIED which GPIO lines:
+	 * /sys/class/leds shows three GPIO-backed LEDs (led0/led1/led2, timer
+	 * trigger, max_brightness 255), and /proc/interrupts shows a
+	 * "gpio_btn1_irq" (IRQ 89) -- a physical button. The exact GPIO lines
+	 * could NOT be read: debugfs-gpio is compiled out of the stock kernel
+	 * and busybox has no way to dump the pinmux. The outlet relays
+	 * themselves are NOT SoC GPIOs -- they're switched by a separate PIC
+	 * over /dev/ttyS1 ("T%02dY\r" / "T%02dN\r", see libtasks.so). Add real
+	 * gpio-leds / gpio-keys nodes here once the three LED lines and the
+	 * button line are traced (serial console + /sys, or a multimeter)
+	 * against a running unit. Left out rather than driving a wrong pin.
 	 */
 };
 
 /*
- * CONFIRMED (from wattbox_decompiled.c): the SoC talks to the outlet-control
- * PIC over a UART at 2400 baud, raw/CS8, referred to as /dev/ttyS1 by the
- * vendor userspace. Which *physical* LPC32x0 UART instance that maps to is
- * UNVERIFIED -- the vendor's 2.6.34 board file could have registered UARTs
- * in any order, and it isn't guaranteed to match the upstream DT-based
- * driver's probe order. All standard UARTs are enabled below so this can be
- * resolved empirically on real hardware: boot, then from each enabled
- * /dev/ttySx send "T01Y\r" and listen for the relay 1 click (or query
- * /var/wattbox/remote_trigger for the button-press path from processpkt's
- * /dev/ttyS2 candidate). No risk in enabling unused UARTs -- do this before
- * ever attempting to control real hardware over the wrong port.
+ * MEASURED: the three wired UARTs are all the standard (nxp,lpc3220-uart,
+ * "16550A") type, at the addresses above. uart6 and the three hsuarts are
+ * not wired on this board and stay disabled (default in lpc32xx.dtsi).
+ *
+ * CONFIRMED (wattbox_decompiled.c): the outlet-control PIC is on /dev/ttyS1
+ * at 2400 baud, raw/CS8 -- which the alias above maps to uart3 @ 0x40080000,
+ * matching the one UART that showed heavy bidirectional traffic (tx:2565
+ * rx:5851) on the live unit. Do NOT send test bytes here casually: writing
+ * "T01Y\r" toggles a real mains relay.
  */
-&uart1 {
-	status = "okay";
-};
-
-&uart2 {
-	status = "okay";
-};
-
 &uart3 {
 	status = "okay";
 };
@@ -71,111 +95,187 @@
 	status = "okay";
 };
 
-/*
- * UNVERIFIED but high-confidence: uart5 is the LPC32x0's conventional
- * default console (see the "UART5 first ... ttyS0" comment in
- * lpc32xx.dtsi itself, matched by both known reference boards). The
- * original firmware's console was set to /dev/null on the kernel command
- * line, so this was never observed directly -- if nothing prints at
- * 115200 8N1 here on power-up, that's the first thing to re-check.
- */
 &uart5 {
 	status = "okay";
 };
 
-&uart6 {
-	status = "okay";
-};
-
-&uart7 {
-	status = "okay";
-};
-
 /*
- * CONFIRMED: this is a LAN-connected device (the whole raw-Ethernet
- * discovery/config protocol and the HTTP UI depend on it). RMII + IRAM
- * descriptors is the standard LPC32x0 wiring and what both known
- * reference designs use -- UNVERIFIED for this specific board, but very
- * unlikely to be anything else given the SoC only has the one MAC.
+ * CONFIRMED it's a LAN device (the whole raw-Ethernet discovery/config
+ * protocol and the HTTP UI depend on it). MEASURED on the live unit:
+ * lpc-net.0 @ 0x31060000, eth0 IRQ 29, MAC d4:6a:91:03:5e:f2, using the
+ * mainline lpc_eth driver. RMII + IRAM descriptors is the standard LPC32x0
+ * wiring; phy-mode is UNVERIFIED (could be MII) but very unlikely to be
+ * anything else given the SoC has only the one MAC.
  */
 &mac {
-	phy-mode = "rmii";
+	/* phy-mode: stock RMII gave 100% RX/TX frame corruption (link up, but
+	 * rx_packets=0 / rx_errors climbing, and giada never saw our TX) --
+	 * classic MII-vs-RMII wiring mismatch. Trying MII. */
+	phy-mode = "mii";
 	use-iram;
+	/*
+	 * No MAC is set here on purpose. The LPC32xx ENET has no MAC in HW/OTP
+	 * (POR = all zeros) and this NOR stores none, so lpc_eth would fall back
+	 * to a random MAC each boot. A stable, per-unit, locally-administered MAC
+	 * is derived from the SoC unique ID in userspace (base-files
+	 * etc/board.d/02_network) -- keeping this image generic rather than
+	 * baking in one unit's address.
+	 */
 	status = "okay";
 };
 
 /*
- * CONFIRMED: rootfs is on NAND (`root=/dev/mtdblock2 rootfstype=cramfs`
- * in the vendor boot args -- swapped to squashfs here). UNVERIFIED: SLC
- * vs. MLC controller, and every timing/partition number below.
+ * MEASURED -- the boot flash. This is a parallel NOR wired to EMC static
+ * chip-select 0, memory-mapped at 0xE0000000 (/proc/iomem: "physmap-flash.0
+ * e0000000-e07fffff"), 8 MB, six fixed partitions. It holds the bootloader,
+ * kernel and CramFS root (`root=/dev/mtdblock2`). This node is load-bearing:
+ * get it wrong and the unit won't boot from flash.
  *
- * SLC is assumed because it's what both known LPC3250 reference boards
- * (phy3250, ea3250) use, and it's the more common/cheaper choice for a
- * simple embedded design like this. If NAND isn't detected on first boot,
- * try &mlc instead -- see lpc32xx.dtsi, which explicitly notes "Enable
- * either SLC or MLC" (this SoC only has pins for one at a time).
+ * How pl172 (the arm,pl175 EMC driver) uses this node: for each child it
+ * REQUIRES `mpmc,cs` and `mpmc,memory-width`, reprograms only the CS width
+ * register from memory-width, leaves the (safe, slow) reset timings in place
+ * unless mpmc,*-delay timing props are given, then populates the child as an
+ * MTD map device via the "cfi-flash" (physmap-core) driver.
  *
- * The timing parameters (the nxp,w- and nxp,r-prefixed properties) are
- * copied verbatim from the
- * ea3250 reference board as a conservative starting point -- they are a
- * property of the *NAND chip*, not the SoC, and must be re-derived from
- * the actual chip's datasheet once its part number is known (desolder-free
- * option: many SLC NAND chips answer a JEDEC ID read that `nanddump`/
- * `mtdinfo` will report once this controller successfully probes).
+ * UNVERIFIED: `mpmc,memory-width`/`bank-width` = 16-bit. An 8 MB single-chip
+ * NOR on the LPC32xx 16-bit EMC bus is almost certainly x16, but this was
+ * not read from the device (no od/mtdinfo applet in the stock busybox). If
+ * the chip does not probe on first boot, try memory-width = <8> / bank-width
+ * = <1>. Because the wrong width only affects Linux's own access (U-Boot
+ * still loads the kernel with its own EMC setup), and validation is done via
+ * a TFTP initramfs with root NOT on this flash, a wrong guess here is
+ * detected safely -- it never bricks the unit. Confirm the width and the
+ * chip's real CFI/JEDEC id from /proc/mtd + mtdinfo on that first boot.
  *
- * Partition table: the *only* hard fact from the firmware image itself is
- * that the CramFS rootfs starts at file offset 0x1A0000 (confirmed via
- * binwalk + magic-number scan of WB10.B929.bin) and that image is exactly
- * 3,932,160 bytes -- which is precisely 3840 * 1024-byte firmware-upload
- * chunks, a strong cross-check that the *whole* image (kernel partition +
- * rootfs partition) is what gets transferred, but says nothing about the
- * NAND chip's total size or where partition 0 (bootloader) starts in flash
- * (the OTA update almost certainly never touches U-Boot itself). Do not
- * treat the sizes below as flash-verified -- they're a placeholder large
- * enough to hold what we know must fit, nothing more. Before flashing
- * anything real: boot a TFTP-loaded initramfs kernel with this &slc node
- * enabled but root NOT mounted from NAND, then read the actual chip
- * geometry from /proc/mtd or `mtdinfo` and fix these numbers first.
+ * Partition offsets are contiguous-from-zero, derived from the erase-block
+ * sizes in /proc/mtd (which lists partitions in flash order); sizes are
+ * MEASURED verbatim. They sum to exactly 0x800000 = 8 MB.
  */
-&slc {
+/*
+ * EMC CS0 timing: keep the controller enabled and configure CS0 from the
+ * chip width so writes/erases are correctly timed. pl172 only *configures*
+ * this child (via mpmc,cs + mpmc,memory-width); it does NOT turn it into an
+ * MTD. The actual NOR MTD is the TOP-LEVEL cfi-flash node below.
+ *
+ * Why not the flash node here: pl172 does of_platform_populate(child), which
+ * instantiates the child's *children* (the partitions subnode), NOT the flash
+ * node itself -- so a `cfi-flash` node placed under &emc never becomes a
+ * platform device and physmap never binds (observed: only an
+ * "e0000000.flash:partitions" device appeared, no /dev/mtd*, no CFI probe).
+ * A root-level node with the absolute physical reg IS populated by the
+ * platform bus, so physmap-core binds and runs the CFI probe.
+ */
+&emc {
 	status = "okay";
 
-	nxp,wdr-clks = <14>;
-	nxp,wwidth = <260000000>;
-	nxp,whold = <104000000>;
-	nxp,wsetup = <200000000>;
-	nxp,rdr-clks = <14>;
-	nxp,rwidth = <34666666>;
-	nxp,rhold = <104000000>;
-	nxp,rsetup = <200000000>;
-	nand-on-flash-bbt;
+	#address-cells = <1>;
+	#size-cells = <1>;
 
-	partitions {
-		compatible = "fixed-partitions";
-		#address-cells = <1>;
-		#size-cells = <1>;
+	nor-cs@0 {
+		reg = <0 0x00800000>;		/* EMC CS0 -> 0xE0000000, 8 MB */
+		mpmc,cs = <0>;
+		mpmc,memory-width = <16>;	/* x16 8MB NOR on the 16-bit EMC */
+		/*
+		 * PB (byte-lane state, EMCStaticConfig0 bit7). Vendor U-Boot sets
+		 * this (0x81); without it pl172 programs 0x01 and the byte-lane/WE#
+		 * strobes don't drive on writes -> ALL parallel-NOR erase/program
+		 * from Linux fails ("MTD do_erase_oneblock(): software timeout").
+		 * REQUIRED for the jffs2 overlay (rootfs_data) to be writable.
+		 * See gotcha_wattbox_emc_pb_bit_nor_writes.
+		 */
+		mpmc,byte-lane-low;
+	};
+};
 
-		/* UNVERIFIED: bootloader + environment, size unknown. */
-		mtd0@0 {
-			label = "wattbox-uboot";
-			reg = <0x00000000 0x00100000>;
-			read-only;
+/* Memory-mapped parallel NOR (mtd0-5 on stock). Absolute physical address so
+ * the physmap-core "cfi-flash" driver binds directly. bank-width 2 = x16. */
+/ {
+	nor: flash@e0000000 {
+		compatible = "cfi-flash";
+		reg = <0xe0000000 0x00800000>;	/* 8 MB @ 0xE0000000 */
+		bank-width = <2>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "bootcode";
+				reg = <0x00000000 0x00020000>;	/* 128 KB */
+				read-only;
+			};
+			/*
+			 * No-initramfs install layout. The self-decompressing
+			 * kernel (zImage+appended-DTB, ~2.70 MB) needs > the old
+			 * 1.625 MB, so "kernel" is grown to 3 MB. "rootfs" is
+			 * sized to EXACTLY the block-aligned squashfs (0x1a0000)
+			 * so mtdsplit finds no trailing space and does NOT carve
+			 * a rootfs_data here -- the writable overlay is the 8 MB
+			 * SPI NOR (mtd6 "rootfs_data") instead. U-Boot bootcmd
+			 * (cp.b 0xE0020000 -> 0x80008000, then go) is unchanged;
+			 * it copies from 0x20000 and the zImage self-extracts.
+			 * The gap 0x4c0000..0x7d0000 is intentionally unused so
+			 * nvram/u-boot-env keep their fixed top-of-flash offsets.
+			 */
+			partition@20000 {
+				label = "kernel";
+				reg = <0x00020000 0x00300000>;	/* 3 MB */
+			};
+			partition@320000 {
+				label = "rootfs";
+				reg = <0x00320000 0x001a0000>;	/* 1.625 MB = block-aligned squashfs */
+			};
+			partition@7d0000 {
+				label = "nvram";
+				reg = <0x007d0000 0x00020000>;	/* 128 KB */
+				read-only;
+			};
+			partition@7f0000 {
+				label = "u-boot-env";
+				reg = <0x007f0000 0x00010000>;	/* 64 KB */
+			};
 		};
+	};
+};
 
-		/* UNVERIFIED offset/size: sized to comfortably hold the
-		 * ~1.66MB kernel payload seen in the firmware image. */
-		mtd1@100000 {
-			label = "wattbox-kernel";
-			reg = <0x00100000 0x00200000>;
-		};
+/*
+ * Second flash: 8 MB SPI NOR (Macronix MX25L64, JEDEC c2 20 17) on the
+ * LPC32xx SSP0/PL022 controller (@0x20084000, IRQ 20). Stock mounts it whole
+ * as jffs2 at /mnt/log. We use it as the OpenWrt overlay (rootfs_data) so the
+ * parallel NOR stays a read-only boot flash.
+ *
+ * CS = GPIO_05 (bank 3, pin 5) -- CONFIRMED: driving SSP0 with CS=GPIO_05
+ * (P2_GPIO05_SSEL0 mux=GPIO, P3_OUTP bit30) returned JEDEC c2 20 17 from the
+ * MX25L64. Matches the stock phy3250 reference DTS (cs-gpios = <&gpio 3 5 0>).
+ */
+&ssp0 {
+	num-cs = <1>;
+	/*
+	 * GPIO_05 (bank 3, pin 5) = SPI NOR chip select, ACTIVE LOW.
+	 * The modern gpiod SPI core drives the CS pin per this flag:
+	 * with ACTIVE_HIGH (0) it drives CS high-to-select, which leaves the
+	 * active-low MX25L64 DEselected -> spi-nor reads JEDEC 0xff (observed).
+	 * Proven active-low: driving GPIO_05 LOW by hand returns JEDEC c2 20 17.
+	 */
+	cs-gpios = <&gpio 3 5 1>;	/* 1 = GPIO_ACTIVE_LOW */
+	status = "okay";
 
-		/* UNVERIFIED offset/size: sized to comfortably hold the
-		 * 2,228,224-byte CramFS seen in the firmware image, plus
-		 * headroom for overlayfs/JFFS2 if this is repurposed as a
-		 * squashfs+overlay rootfs. */
-		mtd2@300000 {
-			label = "wattbox-rootfs";
-			reg = <0x00300000 0x00d00000>;
+	spi_nor: flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <20000000>;	/* conservative; chip does 50MHz+ */
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			/* whole chip = OpenWrt overlay; formatted jffs2 on first boot */
+			partition@0 {
+				label = "rootfs_data";
+				reg = <0x00000000 0x00800000>;	/* 8 MB */
+			};
 		};
 	};
 };

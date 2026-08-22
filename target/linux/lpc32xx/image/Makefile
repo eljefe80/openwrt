@@ -13,16 +13,21 @@ include $(INCLUDE_DIR)/image.mk
 # a real serial connection before relying on this for a TFTP boot.
 KERNEL_LOADADDR := 0x80008000
 
-define Build/uimage-gzip
-	$(call Build/uImage,gzip)
+# The kernel-bin here is a self-decompressing ARM zImage (KERNEL_NAME below).
+# It MUST be wrapped as a comp=none uImage: U-Boot copies it verbatim to
+# KERNEL_LOADADDR and jumps, and the zImage decompresses itself. Declaring
+# comp=gzip makes bootm try (and fail) to gunzip the zImage, which aborts
+# silently on this muted-console vendor U-Boot -- looks like a dead board.
+define Build/uimage-none
+	$(call Build/uImage,none)
 endef
 
 define Device/Default
 	PROFILES := Default
 	DEVICE_DTS_DIR := $(DTS_DIR)/nxp/lpc
 	KERNEL_NAME := zImage
-	KERNEL := kernel-bin | append-dtb | uimage-gzip
-	KERNEL_INITRAMFS := kernel-bin | append-dtb | uimage-gzip
+	KERNEL := kernel-bin | append-dtb | uimage-none
+	KERNEL_INITRAMFS := kernel-bin | append-dtb | uimage-none
 	FILESYSTEMS := squashfs
 	BLOCKSIZE := 128k
 	IMAGES := sysupgrade.bin
@@ -36,6 +41,8 @@ endef
 # boot `<this>-initramfs-kernel.bin` over TFTP first (select "Initramfs" as
 # the root filesystem in `make menuconfig`) -- that never touches NAND and
 # is trivially recoverable by power-cycling back to the stock firmware.
+# RAM/flash trimming is handled at the target level via DEVICE_TYPE=basic (see
+# target/linux/lpc32xx/Makefile) so it also applies to the initramfs rootfs.
 define Device/snapav_wattbox-wb300vb
 	DEVICE_VENDOR := SnapAV
 	DEVICE_MODEL := WattBox WB-300VB-IP-5
