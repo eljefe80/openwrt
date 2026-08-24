@@ -1,0 +1,68 @@
+#!/bin/sh /etc/rc.common
+# wbctld - WattBox control daemon
+USE_PROCD=1
+START=95
+STOP=10
+CONF=/var/etc/wbctl.conf
+
+render_conf() {
+	mkdir -p /var/etc
+	config_load wbctl
+	local host port user pass base disco serial devname uid poll nout vs is
+	config_get host  global host  127.0.0.1
+	config_get port  global port  1883
+	config_get user  global user  ''
+	config_get pass  global pass  ''
+	config_get base  global base_topic wattbox
+	config_get disco global disco_prefix homeassistant
+	config_get serial global serial /dev/ttyS1
+	config_get devname global device_name WattBox
+	config_get uid   global uid wattbox
+	config_get poll  global poll 10
+	config_get nout  global num_outlets 5
+	config_get vs    global volt_scale 0.1
+	config_get is    global curr_scale 0.1
+	local statefile pondelay rstdelay
+	config_get statefile global state_file /etc/wbctl.state
+	config_get pondelay  global power_on_delay 0
+	config_get rstdelay  global reset_delay 5
+	{
+		echo "mqtt_host=$host"; echo "mqtt_port=$port"
+		echo "mqtt_user=$user"; echo "mqtt_pass=$pass"
+		echo "base_topic=$base"; echo "disco_prefix=$disco"
+		echo "serial=$serial"; echo "device_name=$devname"; echo "uid=$uid"
+		echo "poll=$poll"; echo "num_outlets=$nout"
+		echo "volt_scale=$vs"; echo "curr_scale=$is"
+		echo "state_file=$statefile"; echo "power_on_delay=$pondelay"; echo "reset_delay=$rstdelay"
+	} > "$CONF"
+	# outlet names + power-on mode (sections in order)
+	OIDX=0
+	render_outlet() {
+		OIDX=$((OIDX+1)); local name pon
+		config_get name "$1" name "Outlet $OIDX"
+		config_get pon  "$1" power_on last
+		echo "outlet${OIDX}_name=$name" >> "$CONF"
+		echo "outlet${OIDX}_power_on=$pon" >> "$CONF"
+	}
+	config_foreach render_outlet outlet
+	# leds (section name = key: power/internet/sys_status/auto_reboot)
+	render_led() {
+		local name; config_get name "$1" name "$1"
+		echo "led_$1_name=$name" >> "$CONF"
+	}
+	config_foreach render_led led
+}
+
+start_service() {
+	local enabled; config_load wbctl; config_get_bool enabled global enabled 1
+	[ "$enabled" = "1" ] || return 0
+	render_conf
+	procd_open_instance
+	procd_set_param command /usr/sbin/wbctld "$CONF"
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+service_triggers() { procd_add_reload_trigger "wbctl"; }

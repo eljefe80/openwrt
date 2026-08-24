@@ -6,14 +6,12 @@
  * uImage wrapping a Linux 2.6.34 zImage, `console=/dev/null mem=32M` boot
  * args, and a CramFS rootfs.
  *
- * 2026-08-18 UPDATE: a live root shell was obtained on a real unit
- * (10.203.254.48) over telnet, and the hardware bring-up checklist was run
- * against the running stock firmware (read-only, no flash writes). Values
- * previously guessed are now measured; the sources are marked below as:
+ * Values were verified against a real unit by running a hardware bring-up
+ * checklist on the running stock firmware (read-only, no flash writes).
+ * Sources are marked below as:
  *   MEASURED   -- read directly from /proc, /sys, /proc/iomem on the device.
  *   CONFIRMED  -- proven from the firmware/protocol reverse-engineering.
  *   UNVERIFIED -- still a best-effort guess; do not treat as flash-safe.
- * See ~/share/projects/wb-300VB-IP-5/bringup-results-2026-08-18.md.
  *
  * The single biggest correction: this board has NO NAND. It boots from a
  * memory-mapped parallel NOR on the LPC32xx EMC (external memory
@@ -209,10 +207,14 @@
 			 * No-initramfs install layout. The self-decompressing
 			 * kernel (zImage+appended-DTB, ~2.70 MB) needs > the old
 			 * 1.625 MB, so "kernel" is grown to 3 MB. "rootfs" is
-			 * sized to EXACTLY the block-aligned squashfs (0x1a0000)
+			 * sized to EXACTLY the block-aligned squashfs (0x1b0000)
 			 * so mtdsplit finds no trailing space and does NOT carve
 			 * a rootfs_data here -- the writable overlay is the 8 MB
-			 * SPI NOR (mtd6 "rootfs_data") instead. U-Boot bootcmd
+			 * SPI NOR (mtd6 "rootfs_data") instead. (If the squashfs
+			 * grows past this, bump the size to its next 64K multiple;
+			 * leftover space would make mtdsplit carve a competing
+			 * parallel-NOR rootfs_data that shadows the SPI overlay.)
+			 * U-Boot bootcmd
 			 * (cp.b 0xE0020000 -> 0x80008000, then go) is unchanged;
 			 * it copies from 0x20000 and the zImage self-extracts.
 			 * The gap 0x4c0000..0x7d0000 is intentionally unused so
@@ -224,7 +226,7 @@
 			};
 			partition@320000 {
 				label = "rootfs";
-				reg = <0x00320000 0x001a0000>;	/* 1.625 MB = block-aligned squashfs */
+				reg = <0x00320000 0x001b0000>;	/* 1.6875 MB = block-aligned squashfs */
 			};
 			partition@7d0000 {
 				label = "nvram";

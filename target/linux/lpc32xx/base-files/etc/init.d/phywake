@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+# WB-300VB-IP-5 reboot fix (no kernel patch).
+#
+# procd's clean shutdown stops the network (K90network), whose ifdown puts the
+# lpc-eth PHY into power-down (BMCR.PDOWN). That power-down survives the SoC
+# reset, so the next kernel hangs ~30s in the lpc-eth probe until the external
+# PIC watchdog hard-resets the board -- observed as a double reboot.
+#
+# Re-up eth0 AFTER network has stopped (this runs as K90phywake, sorting after
+# K90network but before K90umount) so the PHY is taken back out of power-down
+# (ndo_open -> phy_start) before the reset. The later SIGTERM/SIGKILL of
+# userspace does not bring a netdev down, so the PHY stays awake through reboot.
+#
+# STOP only -- there is nothing to do at boot.
+STOP=90
+
+stop() {
+	ip link set eth0 up 2>/dev/null || ifconfig eth0 up 2>/dev/null
+}

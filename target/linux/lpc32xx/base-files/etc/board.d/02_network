@@ -17,7 +17,15 @@ soc_serial=$(sed -n 's/^Serial[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo)
 if [ -n "$soc_serial" ]; then
 	mac_base=$(macaddr_canonicalize "$(printf '%s' "$soc_serial" | sha256sum | dd bs=1 count=12 2>/dev/null)")
 	mac=$(macaddr_unsetbit_mc "$(macaddr_setbit_la "$mac_base")")
-	[ -n "$mac" ] && ucidef_set_network_device_mac eth0 "$mac"
+	# The lan interface is a bridge (br-lan). Setting the MAC only on the eth0
+	# port does NOT stabilise the bridge: the kernel gives br-lan its own random
+	# MAC every boot, so the DHCP lease still churns. br-lan is the L3 interface
+	# that takes the lease, so the stable MAC must be set on the BRIDGE device
+	# (a bridge sharing a member's MAC is normal). Set both for determinism.
+	[ -n "$mac" ] && {
+		ucidef_set_network_device_mac eth0 "$mac"
+		ucidef_set_network_device_mac br-lan "$mac"
+	}
 fi
 
 board_config_flush

@@ -1,0 +1,5 @@
+#!/bin/sh
+# WB-300VB-IP-5 first-boot setup: enable the PHY-wake reboot hook and the
+# WattBox control daemon. Runs once on first boot, then is removed.
+/etc/init.d/phywake enable
+exit 0

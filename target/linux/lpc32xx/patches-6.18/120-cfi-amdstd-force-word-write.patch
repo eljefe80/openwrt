@@ -1,0 +1,22 @@
+WB-300VB-IP-5: force CFI word writes on the parallel NOR.
+
+The Macronix parallel NOR on this board's LPC32xx EMC hangs on CFI buffered
+writes -- the buffered-program command sequence (0x25/0x29) never completes,
+so `mtd write` (and therefore sysupgrade) hangs indefinitely. Single-word
+programming (0xA0), which a userspace raw-CFI flasher proves works reliably on
+this exact chip, is unaffected. cfi_cmdset_0002 exposes no Kconfig / DT / CFLAGS
+lever for this -- FORCE_WORD_WRITE is a bare #define -- so patch it on. This is a
+necessary hardware quirk for this target (single-NOR board; word writes are
+always correct, only slightly slower).
+
+--- a/drivers/mtd/chips/cfi_cmdset_0002.c
++++ b/drivers/mtd/chips/cfi_cmdset_0002.c
+@@ -38,7 +38,7 @@
+ #include <linux/mtd/xip.h>
+
+ #define AMD_BOOTLOC_BUG
+-#define FORCE_WORD_WRITE 0
++#define FORCE_WORD_WRITE 1
+
+ #define MAX_RETRIES 3
+

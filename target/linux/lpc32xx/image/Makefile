@@ -26,12 +26,12 @@ define Device/Default
 	PROFILES := Default
 	DEVICE_DTS_DIR := $(DTS_DIR)/nxp/lpc
 	KERNEL_NAME := zImage
-	KERNEL := kernel-bin | append-dtb | uimage-none
-	KERNEL_INITRAMFS := kernel-bin | append-dtb | uimage-none
+	KERNEL := kernel-bin | append-dtb
+	KERNEL_INITRAMFS := kernel-bin | append-dtb
 	FILESYSTEMS := squashfs
 	BLOCKSIZE := 128k
 	IMAGES := sysupgrade.bin
-	IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | pad-rootfs
+	IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | pad-rootfs | append-metadata
 endef
 
 # The one real device this target was built from. Everything past the

@@ -15,7 +15,7 @@ DEVICE_TYPE:=basic
 SUBTARGETS:=generic
 CPU_TYPE:=arm926ej-s
 
-KERNEL_PATCHVER:=6.12
+KERNEL_PATCHVER:=6.18
 
 include $(INCLUDE_DIR)/target.mk
 
