@@ -1192,14 +1192,13 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/Makefile linux-5.15.130-new/drivers/c
  clk-qcom-y += reset.o
  clk-qcom-$(CONFIG_QCOM_GDSC) += gdsc.o
  
-@@ -24,6 +25,7 @@
- obj-$(CONFIG_IPQ_APSS_PLL) += apss-ipq-pll.o
+@@ -37,4 +37,5 @@
  obj-$(CONFIG_IPQ_APSS_6018) += apss-ipq6018.o
+ obj-$(CONFIG_IPQ_CMN_PLL) += ipq-cmn-pll.o
  obj-$(CONFIG_IPQ_GCC_4019) += gcc-ipq4019.o
 +obj-$(CONFIG_IPQ_ADCC_4019) += adcc-ipq4019.o
- obj-$(CONFIG_IPQ_GCC_6018) += gcc-ipq6018.o
- obj-$(CONFIG_IPQ_GCC_806X) += gcc-ipq806x.o
- obj-$(CONFIG_IPQ_GCC_8074) += gcc-ipq8074.o
+ obj-$(CONFIG_IPQ_GCC_5018) += gcc-ipq5018.o
+ obj-$(CONFIG_IPQ_GCC_5332) += gcc-ipq5332.o
 diff -Naur linux-5.15.130/include/dt-bindings/clock/qcom,adcc-ipq4019.h linux-5.15.130-new/include/dt-bindings/clock/qcom,adcc-ipq4019.h
 --- linux-5.15.130/include/dt-bindings/clock/qcom,adcc-ipq4019.h	1969-12-31 16:00:00.000000000 -0800
 +++ linux-5.15.130-new/include/dt-bindings/clock/qcom,adcc-ipq4019.h	2023-10-08 20:02:25.640907264 -0700
