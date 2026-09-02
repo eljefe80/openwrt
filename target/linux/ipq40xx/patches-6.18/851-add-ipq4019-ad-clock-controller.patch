@@ -414,7 +414,7 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/adcc-ipq4019.c linux-5.15.130-new/dri
 diff -Naur linux-5.15.130/drivers/clk/qcom/clk-qcapll.c linux-5.15.130-new/drivers/clk/qcom/clk-qcapll.c
 --- linux-5.15.130/drivers/clk/qcom/clk-qcapll.c	1969-12-31 16:00:00.000000000 -0800
 +++ linux-5.15.130-new/drivers/clk/qcom/clk-qcapll.c	2023-10-26 08:33:06.468786064 -0700
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,197 @@
 +/*
 + * Copyright (c) 2013, 2015 The Linux Foundation. All rights reserved.
 + *
@@ -543,8 +543,6 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-qcapll.c linux-5.15.130-new/drive
 +{
 +	struct clk_qcapll *pll = to_clk_qcapll(hw);
 +	const struct pll_freq_tbl *f;
-+	unsigned long rate = req->rate, index;
-+	struct clk_hw *p;
 +
 +	f = find_freq(pll->freq_tbl, req->rate);
 +
