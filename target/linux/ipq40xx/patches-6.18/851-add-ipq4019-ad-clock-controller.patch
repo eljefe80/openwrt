@@ -1080,6 +1080,15 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg2.c linux-5.15.130-new/drivers
 diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg.h linux-5.15.130-new/drivers/clk/qcom/clk-rcg.h
 --- linux-5.15.130/drivers/clk/qcom/clk-rcg.h	2023-10-08 19:05:30.266977576 -0700
 +++ linux-5.15.130-new/drivers/clk/qcom/clk-rcg.h	2023-10-26 08:30:07.978521609 -0700
+@@ -12,7 +12,7 @@
+ struct freq_tbl {
+ 	unsigned long freq;
+ 	u8 src;
+-	u8 pre_div;
++	u16 pre_div;
+ 	u16 m;
+ 	u16 n;
+ };
 @@ -50,6 +50,18 @@
  };
  
