@@ -33,7 +33,7 @@ endef
 define KernelPackage/ipq40xx-snd
   SUBMENU:=Sound Support
   TITLE:=ipq40xx sound driver
-  DEPENDS:=+kmod-snd-simple-card
+  DEPENDS:=+kmod-sound-core +kmod-snd-simple-card
   FILES:=\
 	$(PKG_BUILD_DIR)/tas5782m.ko \
 	$(PKG_BUILD_DIR)/snd-soc-ipq40xx-cpu.ko \
