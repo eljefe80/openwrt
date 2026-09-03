@@ -329,10 +329,6 @@
 		hsphy@a6000 {
 			status = "okay";
 		};
-
-		usb2_hs_phy: hsphy@a8000 {
-			status = "okay";
-		};
 	};
 
 	regulator@1948000 {
