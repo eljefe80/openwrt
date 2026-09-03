@@ -1,0 +1,307 @@
+--- a/rbs40v-touchpad.c
++++ b/rbs40v-touchpad.c
+@@ -29,8 +29,6 @@
+ static int mic_mute_gpio;
+ static int speaker_mute_gpio;
+ 
+-enum 
+-
+ /****
+ 1-11: volume
+ 32: speaker mute
+@@ -62,45 +60,60 @@
+ #define RBS40V_REG_B    1
+ #define RBS40V_INIT_DEV 1
+ 
+-static const struct of_device_id rbs40v_touchpad_id_table[];
+-
+ static int rbs40v_tp_worker(void *dev_id) {
+ 	struct rbs40v_tp_dev *tp = dev_id;
++	int ret;
+ 
+ 	while (!kthread_should_stop()) {
+ 		msleep(20);
++
++		/* Status is reported on the same register used to init the
++		 * device (RBS40V_REG_A); carried over from the original
++		 * reverse-engineered protocol notes, unverified on real HW.
++		 */
++		ret = i2c_smbus_read_word_data(tp->i2c, RBS40V_REG_A);
++		if (ret < 0)
++			continue;
++
++		switch (ret) {
++			case VOL_1:
++			case VOL_2:
++			case VOL_3:
++			case VOL_4:
++			case VOL_5:
++			case VOL_6:
++			case VOL_7:
++			case VOL_8:
++			case VOL_9:
++			case VOL_10:
++			case VOL_11:
++				/* abuse LED brightness as a volume-level readout, per the
++				 * header comment; sysfs .../brightness reflects level 1-11 */
++				tp->led_dev[0]->brightness = ret;
++				break;
++			case SPKR_MUTE:
++				/* momentary press+release: the register holds
++				 * no separate up/down edge information */
++				input_report_key(tp->button_dev[1], BTN_1, 1);
++				input_sync(tp->button_dev[1]);
++				input_report_key(tp->button_dev[1], BTN_1, 0);
++				input_sync(tp->button_dev[1]);
++				break;
++			case ACTION_BTN:
++				input_report_key(tp->button_dev[2], BTN_2, 1);
++				input_sync(tp->button_dev[2]);
++				input_report_key(tp->button_dev[2], BTN_2, 0);
++				input_sync(tp->button_dev[2]);
++				break;
++			case MIC_MUTE:
++				input_report_key(tp->button_dev[3], BTN_3, 1);
++				input_sync(tp->button_dev[3]);
++				input_report_key(tp->button_dev[3], BTN_3, 0);
++				input_sync(tp->button_dev[3]);
++				break;
++		}
+ 	}
+-	ret = i2c_smbus_read_word_data(tp->i2c, );
+-	switch (ret) :
+-	{
+-		case VOL_1:
+-		case VOL_2:
+-		case VOL_3:
+-		case VOL_4:
+-		case VOL_5:
+-		case VOL_6:
+-		case VOL_7:
+-		case VOL_8:
+-		case VOL_9:
+-		case VOL_10:
+-		case VOL_11:
+-			input_report_key(tp->button[0], BTN_0, inb(BUTTON_PORT) & 1);
+-			input_sync(tp->button[0];
+-			break;
+-		case SPKR_MUTE:
+-			input_report_key(tp->button[1], BTN_1, inb(BUTTON_PORT) & 1);
+-			input_sync(tp->button[1];
+-			break;
+-		case ACTION_BTN:
+-			input_report_key(tp->button[2], BTN_2, inb(BUTTON_PORT) & 1);
+-			input_sync(tp->button[2];
+-			break;
+-		case MIC_MUTE:
+-			input_report_key(tp->button[3], BTN_0, inb(BUTTON_PORT) & 1);
+-			input_sync(tp->button[3];
+-			break;
+-	}
+-	
++
+ 	return 0;
+ }
+ 
+@@ -111,111 +124,154 @@
+  *  function sets up the GPIOs and the IRQ
+  *  @return returns 0 if successful
+  */
+-static int rbs40v_touchpad_probe(struct i2c_client *i2c,
+-				const struct i2c_device_id *id){
++static int rbs40v_touchpad_probe(struct i2c_client *i2c){
+ 	int ret = 0;
++	int i;
+ 	struct device_node *np;
+ 	struct rbs40v_tp_dev *tp;
+-	const struct of_device_id *match = i2c_of_match_device(rbs40v_touchpad_id_table, i2c);
+-	struct task_struct *kthread;
+ 
+ 	tp = devm_kzalloc(&i2c->dev, sizeof(struct rbs40v_tp_dev), GFP_KERNEL);
+ 	if (!tp) {
+ 		ret = -ENODEV;
+ 		goto error;
+ 	}
++	tp->i2c = i2c;
+ 	i2c_set_clientdata(i2c, tp);
+ 
+ 	np = of_node_get(i2c->dev.of_node);
+ 	mic_mute_gpio = of_get_named_gpio(np, "mic-pin", 0);
+ 	speaker_mute_gpio = of_get_named_gpio(np, "speaker-pin", 0);
+-	of_node_put(i2c->dev.of_node);
++	of_node_put(np);
++
++	if (gpio_is_valid(mic_mute_gpio)) {
++		ret = gpio_request_one(mic_mute_gpio, GPIOF_OUT_INIT_LOW,
++					"rbs40v_mic_mute");
++		if (ret) {
++			dev_err(&i2c->dev, "failed to request mic-mute gpio: %d\n", ret);
++			goto error;
++		}
++	}
++
++	if (gpio_is_valid(speaker_mute_gpio)) {
++		ret = gpio_request_one(speaker_mute_gpio, GPIOF_OUT_INIT_LOW,
++					"rbs40v_speaker_mute");
++		if (ret) {
++			dev_err(&i2c->dev, "failed to request speaker-mute gpio: %d\n", ret);
++			goto err_free_mic_gpio;
++		}
++	}
++
++	tp->button_dev = devm_kzalloc(&i2c->dev,
++				sizeof(struct input_dev *) * NUM_BUTTONS, GFP_KERNEL);
++	if (!tp->button_dev) {
++		ret = -ENOMEM;
++		goto err_free_speaker_gpio;
++	}
++
++	tp->led_dev = devm_kzalloc(&i2c->dev,
++				sizeof(struct led_classdev *) * NUM_BUTTONS, GFP_KERNEL);
++	if (!tp->led_dev) {
++		ret = -ENOMEM;
++		goto err_free_speaker_gpio;
++	}
++	for (i = 0; i < NUM_BUTTONS; i++) {
++		tp->led_dev[i] = devm_kzalloc(&i2c->dev,
++					sizeof(struct led_classdev), GFP_KERNEL);
++		if (!tp->led_dev[i]) {
++			ret = -ENOMEM;
++			goto err_free_speaker_gpio;
++		}
++	}
+ 
+ 	/* set up the volume button */
+ 	tp->button_dev[0] = devm_input_allocate_device(&i2c->dev);
+ 	if (!tp->button_dev[0]) {
+-		return -ENOMEM;
++		ret = -ENOMEM;
++		goto err_free_speaker_gpio;
+ 	}
+ 	tp->button_dev[0]->evbit[0] = BIT_MASK(EV_KEY);
+ 	tp->button_dev[0]->keybit[BIT_WORD(BTN_0)] = BIT_MASK(BTN_0);
+ 	ret = input_register_device(tp->button_dev[0]);
+ 	if (ret) {
+-		goto err_free_dev;
++		goto err_free_speaker_gpio;
+ 	}
+ 
+ 	/* set up the Mic Mute button */
+ 	tp->button_dev[1] = devm_input_allocate_device(&i2c->dev);
+ 	if (!tp->button_dev[1]) {
+-		return -ENOMEM;
++		ret = -ENOMEM;
++		goto err_free_speaker_gpio;
+ 	}
+ 	tp->button_dev[1]->evbit[0] = BIT_MASK(EV_KEY);
+ 	tp->button_dev[1]->keybit[BIT_WORD(BTN_1)] = BIT_MASK(BTN_1);
+ 	ret = input_register_device(tp->button_dev[1]);
+ 	if (ret) {
+-		goto err_free_dev;
++		goto err_free_speaker_gpio;
+ 	}
+ 	/* set up the Notification button */
+ 	tp->button_dev[2] = devm_input_allocate_device(&i2c->dev);
+ 	if (!tp->button_dev[2]) {
+-		return -ENOMEM;
++		ret = -ENOMEM;
++		goto err_free_speaker_gpio;
+ 	}
+ 	tp->button_dev[2]->evbit[0] = BIT_MASK(EV_KEY);
+ 	tp->button_dev[2]->keybit[BIT_WORD(BTN_2)] = BIT_MASK(BTN_2);
+ 	ret = input_register_device(tp->button_dev[2]);
+ 	if (ret) {
+-		goto err_free_dev;
++		goto err_free_speaker_gpio;
+ 	}
+ 	/* set up the volume mute button */
+ 	tp->button_dev[3] = devm_input_allocate_device(&i2c->dev);
+ 	if (!tp->button_dev[3]) {
+-		return -ENOMEM;
++		ret = -ENOMEM;
++		goto err_free_speaker_gpio;
+ 	}
+ 	tp->button_dev[3]->evbit[0] = BIT_MASK(EV_KEY);
+ 	tp->button_dev[3]->keybit[BIT_WORD(BTN_3)] = BIT_MASK(BTN_3);
+ 	ret = input_register_device(tp->button_dev[3]);
+ 	if (ret) {
+-		goto err_free_dev;
++		goto err_free_speaker_gpio;
+ 	}
+ 
+-	tp->led_dev = devm_kzalloc(&i2c->dev, sizeof(struct led_classdev) * NUM_BUTTONS, GFP_KERNEL);
+-	if (!tp->led_dev) {
+-		return -ENOMEM;
+-	}
+ 	/* Set up volume LED, we will abuse the led brightness mechanism to pass volumes 1-11 */
+ 	tp->led_dev[0]->name = "rbs40v_touchpad:white:volume";
+-	tp->led_dev[0]->max_brightness = 10;
++	tp->led_dev[0]->max_brightness = 11;
+ 	tp->led_dev[0]->brightness = LED_OFF;
+ 	ret = devm_led_classdev_register(&i2c->dev, tp->led_dev[0]);
+ 	if (ret) {
+-		goto err_free_dev;
++		goto err_free_speaker_gpio;
+ 	}
+ 
+ 	/* Set up MIC mute */
+-	tp->led_dev[1]->name = "rbs40v_touchbad:red:micmute";
++	tp->led_dev[1]->name = "rbs40v_touchpad:red:micmute";
+ 	ret = devm_led_classdev_register(&i2c->dev, tp->led_dev[1]);
+ 	if (ret) {
+-		goto err_free_dev;
++		goto err_free_speaker_gpio;
+ 	}
+ 	/* Set up vol mute */
+-	tp->led_dev[2]->name = "rbs40v_touchbad:red:volmute";
++	tp->led_dev[2]->name = "rbs40v_touchpad:red:volmute";
+ 	ret = devm_led_classdev_register(&i2c->dev, tp->led_dev[2]);
+ 	if (ret) {
+-		goto err_free_dev;
++		goto err_free_speaker_gpio;
+ 	}
+ 
+ 	tp->kthread = kthread_run(rbs40v_tp_worker, tp, "rbs40v_tp_worker");
+-	if (IS_ERR(kthread)) {
+-		ret = PTR_ERR(kthread);
++	if (IS_ERR(tp->kthread)) {
++		ret = PTR_ERR(tp->kthread);
+ 		dev_err(&i2c->dev, "Could not start worker thread: %d.\n", ret);
+-		return ret;
++		goto err_free_speaker_gpio;
+ 	}
+ 
+ 	return i2c_smbus_write_word_data(i2c, RBS40V_REG_A, RBS40V_INIT_DEV);
+ 
++err_free_speaker_gpio:
++	if (gpio_is_valid(speaker_mute_gpio))
++		gpio_free(speaker_mute_gpio);
++err_free_mic_gpio:
++	if (gpio_is_valid(mic_mute_gpio))
++		gpio_free(mic_mute_gpio);
+ error:
+-err_free_dev:
+ 	return ret;
+-
+ }
+ 
+ /** @brief The LKM cleanup function
+@@ -223,12 +279,15 @@
+  *  code is used for a built-in driver (not a LKM) that this function is not required. Used to release the
+  *  GPIOs and display cleanup messages.
+  */
+-static int rbs40v_touchpad_remove(struct i2c_client *client){
++static void rbs40v_touchpad_remove(struct i2c_client *client){
++	struct rbs40v_tp_dev *tp = i2c_get_clientdata(client);
+ 
+-	tp = i2c_get_clientdata(i2c);
+ 	kthread_stop(tp->kthread);
+ 
+-	return 0;
++	if (gpio_is_valid(speaker_mute_gpio))
++		gpio_free(speaker_mute_gpio);
++	if (gpio_is_valid(mic_mute_gpio))
++		gpio_free(mic_mute_gpio);
+ }
+ 
+ static const struct of_device_id rbs40v_touchpad_id_table[] = {
