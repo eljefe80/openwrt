@@ -709,7 +709,7 @@
 &gmac {
 	status = "okay";
 	nvmem-cells = <&macaddr_board_data_1>;
-	nvmem-cells-names = "mac-address";
+	nvmem-cell-names = "mac-address";
 };
 
 &switch {
