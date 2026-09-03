@@ -1,0 +1,132 @@
+--- a/ipq40xx-pcm-i2s.c
++++ b/ipq40xx-pcm-i2s.c
+@@ -27,6 +27,7 @@
+ #include <linux/slab.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/gpio.h>
++#include <linux/uio.h>
+ #include <asm/dma.h>
+ #include <sound/core.h>
+ #include <sound/soc.h>
+@@ -273,18 +274,17 @@
+ 
+ static int ipq40xx_pcm_i2s_copy(struct snd_soc_component *component,
+ 				struct snd_pcm_substream *substream, int chan,
+-				snd_pcm_uframes_t hwoff, void __user *ubuf,
+-				snd_pcm_uframes_t frames)
++				unsigned long pos, struct iov_iter *iter,
++				unsigned long bytes)
+ {
+ 	struct snd_dma_buffer *buf = &substream->dma_buffer;
+-	struct snd_pcm_runtime *runtime = substream->runtime;
+-	struct ipq40xx_pcm_rt_priv *pcm_rtpriv = runtime->private_data;
++	struct ipq40xx_pcm_rt_priv *pcm_rtpriv = substream->runtime->private_data;
+ 	char *hwbuf;
+ 	u32 offset, size;
+ 	u32 period_size, i, no_of_descs;
+ 
+-	offset = frames_to_bytes(runtime, hwoff);
+-	size = frames_to_bytes(runtime, frames);
++	offset = pos;
++	size = bytes;
+ 	period_size = pcm_rtpriv->period_size;
+ 
+ 	hwbuf = buf->area + offset;
+@@ -298,10 +298,10 @@
+ 		if (size % period_size)
+ 			memset(hwbuf + size, 0,
+ 					period_size - (size % period_size));
+-		if (copy_from_user(hwbuf, ubuf, size))
++		if (copy_from_iter(hwbuf, size, iter) != size)
+ 			return -EFAULT;
+ 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
+-		if (copy_to_user(ubuf, hwbuf, size))
++		if (copy_to_iter(hwbuf, size, iter) != size)
+ 			return -EFAULT;
+ 	}
+ 
+@@ -395,7 +395,7 @@
+ 	struct ipq40xx_pcm_rt_priv *pcm_rtpriv =
+ 				substream->runtime->private_data;
+ 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+-	struct snd_soc_dai *dai = asoc_rtd_to_cpu(rtd, 0);
++	struct snd_soc_dai *dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 	struct dai_priv_st *priv = snd_soc_dai_get_drvdata(dai);
+ 
+ 	switch (cmd) {
+@@ -426,6 +426,7 @@
+ 		/* Disable the I2S Stereo block */
+ 		ipq40xx_stereo_config_enable(DISABLE,
+ 				get_stereo_id(priv, substream));
++		fallthrough;
+ 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+ 		ret = ipq40xx_mbox_dma_stop(pcm_rtpriv->channel);
+ 		if (ret) {
+@@ -452,7 +453,7 @@
+ 	struct ipq40xx_pcm_rt_priv *pcm_rtpriv =
+ 				substream->runtime->private_data;
+ 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+-	struct snd_soc_dai *dai = asoc_rtd_to_cpu(rtd, 0);
++	struct snd_soc_dai *dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 	uint32_t bit_width, rate, frames, sample_rate, sample_size;
+ 	struct dai_priv_st *priv = snd_soc_dai_get_drvdata(dai);
+ 	int ret;
+@@ -525,7 +526,7 @@
+ 	struct snd_pcm_runtime *runtime = substream->runtime;
+ 	struct ipq40xx_pcm_rt_priv *pcm_rtpriv;
+     struct snd_soc_pcm_runtime *rtd = substream->private_data;
+-    struct snd_soc_dai *dai = asoc_rtd_to_cpu(rtd, 0);
++    struct snd_soc_dai *dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 	struct dai_priv_st *priv = snd_soc_dai_get_drvdata(dai);
+ 
+ 	pcm_rtpriv = kmalloc(sizeof(struct ipq40xx_pcm_rt_priv), GFP_KERNEL);
+@@ -632,7 +633,7 @@
+         .prepare        = ipq40xx_pcm_i2s_prepare,
+         .mmap           = ipq40xx_pcm_i2s_mmap,
+         .pointer        = ipq40xx_pcm_i2s_pointer,
+-        .copy_user      = ipq40xx_pcm_i2s_copy,
++        .copy           = ipq40xx_pcm_i2s_copy,
+ 		.pcm_construct	= ipq40xx_asoc_pcm_i2s_new,
+ 		.pcm_destruct	= ipq40xx_asoc_pcm_i2s_free,
+ };
+@@ -648,29 +649,34 @@
+ static int ipq40xx_pcm_i2s_driver_probe(struct platform_device *pdev)
+ {
+ 	int ret;
+-	struct dev_pin_info *pins;
++	struct pinctrl *pctrl;
+ 	struct pinctrl_state *pin_state;
+ 
+-	pins = pdev->dev.pins;
+-	pin_state = pinctrl_lookup_state(pins->p, "audio");
++	pctrl = devm_pinctrl_get(&pdev->dev);
++	if (IS_ERR(pctrl))
++		return PTR_ERR(pctrl);
++
++	pin_state = pinctrl_lookup_state(pctrl, "audio");
++	if (IS_ERR(pin_state))
++		return PTR_ERR(pin_state);
++
+ 	ret = devm_snd_soc_register_component(&pdev->dev,
+ 			&ipq40xx_asoc_pcm_i2s_platform, NULL, 0);
+ 
+ 	if (ret)
+ 		dev_err(&pdev->dev, "%s: Failed to register i2s pcm device\n",
+ 								__func__);
+-	pinctrl_select_state(pins->p, pin_state);
++	pinctrl_select_state(pctrl, pin_state);
+ 
+ 	ipq40xx_mbox_probe(pdev);
+ 	ipq40xx_audio_stereo_probe(pdev);
+ 	return ret;
+ }
+ 
+-static int ipq40xx_pcm_i2s_driver_remove(struct platform_device *pdev)
++static void ipq40xx_pcm_i2s_driver_remove(struct platform_device *pdev)
+ {
+ 	ipq40xx_mbox_remove(pdev);
+ 	snd_soc_unregister_component(&pdev->dev);
+-	return 0;
+ }
+ 
+ static struct platform_driver ipq40xx_pcm_i2s_driver = {

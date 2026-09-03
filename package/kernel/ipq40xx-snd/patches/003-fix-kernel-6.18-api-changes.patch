@@ -1,0 +1,42 @@
+--- a/tas5782m.c
++++ b/tas5782m.c
+@@ -312,7 +312,7 @@
+ static int tas5782m_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
+ {
+ 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
+-	case SND_SOC_DAIFMT_CBS_CFS:
++	case SND_SOC_DAIFMT_CBC_CFC:
+ 		break;
+ 	default:
+ 		return 0;//-EINVAL;
+@@ -345,7 +345,7 @@
+ 	case SNDRV_PCM_FORMAT_S24_LE:
+ 	case SNDRV_PCM_FORMAT_S24_BE:
+ 		pr_debug("24bit\n");
+-	/* fall through */
++		fallthrough;
+ 	case SNDRV_PCM_FORMAT_S32_LE:
+ 	case SNDRV_PCM_FORMAT_S20_3LE:
+ 	case SNDRV_PCM_FORMAT_S20_3BE:
+@@ -664,8 +664,7 @@
+ 	pr_debug("tas5782m->chip_offset:%d!\n", tas5782m->chip_offset);
+ 	return ret;
+ }
+-static int tas5782m_i2c_probe(struct i2c_client *i2c,
+-				const struct i2c_device_id *id)
++static int tas5782m_i2c_probe(struct i2c_client *i2c)
+ {
+ 	struct tas5782m_priv *tas5782m;
+ 	struct tas57xx_platform_data *pdata;
+@@ -710,10 +709,9 @@
+ 	return ret;
+ }
+ 
+-static int tas5782m_i2c_remove(struct i2c_client *client)
++static void tas5782m_i2c_remove(struct i2c_client *client)
+ {
+ 	snd_soc_unregister_component(&client->dev);
+-	return 0;
+ }
+ static const struct i2c_device_id tas5782m_i2c_id[] = {
+ 	{ "tas5782m", 0 },
