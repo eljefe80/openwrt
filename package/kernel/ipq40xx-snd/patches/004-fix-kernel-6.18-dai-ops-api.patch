@@ -1,0 +1,58 @@
+--- a/ipq40xx-cpu-dai.c
++++ b/ipq40xx-cpu-dai.c
+@@ -243,7 +243,10 @@
+ 	return 0;
+ }
+ 
++static int ipq40xx_audio_probe(struct snd_soc_dai *dai);
++
+ static struct snd_soc_dai_ops ipq40xx_audio_ops = {
++	.probe		= ipq40xx_audio_probe,
+ 	.startup	= ipq40xx_audio_startup,
+ 	.hw_params	= ipq40xx_audio_hw_params,
+ };
+@@ -261,7 +264,6 @@
+ 
+ static struct snd_soc_dai_driver ipq40xx_cpu_dais[] = {
+ 	{
+-		.probe = ipq40xx_audio_probe,
+ 		.playback = {
+ 			.stream_name = "Playback",
+ 			.rates		= RATE_16000_96000,
+@@ -286,7 +288,6 @@
+ 		.name = "qca-i2s-dai"
+ 	},
+ 	{
+-		.probe = ipq40xx_audio_probe,
+ 		.playback = {
+ 			.rates		= RATE_16000_96000,
+ 			.formats	= SNDRV_PCM_FMTBIT_S16 |
+@@ -310,7 +311,6 @@
+ 		.name = "qca-tdm-dai"
+ 	},
+ 	{
+-		.probe = ipq40xx_audio_probe,
+ 		.playback = {
+ 			.rates		= RATE_16000_96000,
+ 			.formats	= SNDRV_PCM_FMTBIT_S16 |
+@@ -325,7 +325,6 @@
+ 		.name = "qca-i2s1-dai"
+ 	},
+ 	{
+-		.probe = ipq40xx_audio_probe,
+ 		.playback = {
+ 			.rates		= RATE_16000_96000,
+ 			.formats	= SNDRV_PCM_FMTBIT_S16 |
+@@ -487,11 +486,10 @@
+ 	return ret;
+ }
+ 
+-static int ipq40xx_dai_remove(struct platform_device *pdev)
++static void ipq40xx_dai_remove(struct platform_device *pdev)
+ {
+ 	ipq40xx_audio_adss_remove(pdev);
+ 	snd_soc_unregister_component(&pdev->dev);
+-	return 0;
+ }
+ 
+ static struct platform_driver ipq40xx_dai_driver = {
