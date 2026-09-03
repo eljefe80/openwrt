@@ -1067,7 +1067,8 @@ define Device/netgear_rbs40v
 		sysupgrade-tar rootfs=$$$$@ | append-metadata
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct ath10k-firmware-qca9887-ct \
 		ath10k-firmware-qca988x-ct kmod-usb-audio kmod-bluetooth \
-		kmod-hci-uart bluez-utils alsa-utils \
+		kmod-hci-uart bluez-libs bluez-utils \
+		libpthread librt alsa-lib libncurses alsa-ucm-conf alsa-utils \
 		kmod-ipq40xx-snd kmod-rbs40v-touchpad
 	DEVICE_MODEL := RBS40V
 	DEVICE_VARIANT := v1 ap.dk07.1-c1
