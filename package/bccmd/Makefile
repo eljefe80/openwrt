@@ -45,6 +45,12 @@ BCCMD_TOOLS_SRCS:=bccmd.c csr.c csr_hci.c csr_h4.c csr_3wire.c csr_bcsp.c ubcsp.
 BCCMD_LIB_SRCS:=bluetooth.c hci.c sdp.c uuid.c
 BCCMD_BUILD:=$(PKG_BUILD_DIR)/bccmd-build
 
+# Only a handful of lib/tools sources are hand-picked and compiled directly
+# below; bluez's own autotools build (and its D-Bus/glib/hal requirements)
+# is never invoked, so skip it.
+define Build/Configure
+endef
+
 define Build/Compile
 	rm -rf $(BCCMD_BUILD)
 	mkdir -p $(BCCMD_BUILD)/bluetooth
