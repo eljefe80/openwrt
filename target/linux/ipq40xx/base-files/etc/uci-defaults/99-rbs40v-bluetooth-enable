@@ -1,0 +1,6 @@
+#!/bin/sh
+# Enable the CSR8811 Bluetooth bring-up service by default (see
+# etc/init.d/rbs40v-bluetooth for what it actually does and why).
+[ "$(board_name)" = "netgear,rbs40v" ] || exit 0
+/etc/init.d/rbs40v-bluetooth enable
+exit 0

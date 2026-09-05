@@ -1,0 +1,55 @@
+--- a/tas5782m.c
++++ b/tas5782m.c
+@@ -535,13 +535,14 @@
+ 			}
+ 			i += data_row;
+ 			//dump_buf(buf, k);
+-			if (write_count !=
+-				i2c_master_send(i2c, buf,
+-				write_count)) {
+-				pr_err("%s %d !!!!! i2c_master_send error !!!!!\n",
+-					__func__, __LINE__);
++			{
++			int __ret = i2c_master_send(i2c, buf, write_count);
++			if (write_count != __ret) {
++				pr_err("%s %d !!!!! i2c_master_send error ret=%d entry_idx=%d reg=0x%02x val=0x%02x !!!!!\n",
++					__func__, __LINE__, __ret, i, buf[0], buf[1]);
+ 				break;
+ 			}
++			}
+ 		} else {
+ 			i++;
+ 			pr_info("%s %d warning: register value error!\n",
+@@ -550,8 +551,15 @@
+ 	}
+ 	tas5782m_init_i2s_tdm_mode(codec, g_sample_bitsize);
+ 	tas5782m_set_mute(codec, tas5782m->Ch1_mute, tas5782m->Ch2_mute);
+-	tas5782m_set_volume(codec, 255-tas5782m->Ch1_vol, 0);
+-	tas5782m_set_volume(codec, 255-tas5782m->Ch2_vol, 1);
++	/* tas5782m_ch{1,2}_vol_put() write Ch{1,2}_vol to the hardware
++	 * unscaled (see tas5782m_set_volume(): buf[1] = value, no
++	 * inversion). This call must match that convention -- the
++	 * previous "255-Ch1_vol" here inverted a value that defaults to
++	 * 0 into 255 (TAS5782M's maximum-attenuation/mute byte),
++	 * unconditionally re-muting the device at the end of every boot
++	 * regardless of what the reg_defaults table above had just set. */
++	tas5782m_set_volume(codec, tas5782m->Ch1_vol, 0);
++	tas5782m_set_volume(codec, tas5782m->Ch2_vol, 1);
+ }
+ static int tas5782m_probe(struct snd_soc_component *codec)
+ {
+@@ -567,8 +575,12 @@
+ 	tas5782m->codec = codec;
+ 	tas5782m->Ch1_mute = 0;
+ 	tas5782m->Ch2_mute = 0;
+-	tas5782m->Ch1_vol = 0;
+-	tas5782m->Ch2_vol = 0;
++	/* 0x4f matches the reg_defaults table's own "start/end set volume"
++	 * entries for TAS5782M_REG_3D/3E -- keep the two in sync so the
++	 * ALSA volume readback matches the real hardware value the table
++	 * just wrote, instead of misreporting 0. */
++	tas5782m->Ch1_vol = 0x4f;
++	tas5782m->Ch2_vol = 0x4f;
+ 	INIT_WORK(&tas5782m->work, tas5782m_init_func);
+ 	schedule_work(&tas5782m->work);
+ 	return 0;

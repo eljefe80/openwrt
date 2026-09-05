@@ -1,0 +1,13 @@
+#!/bin/sh
+# ttyMSM1 is the RBS40V's Bluetooth UART (same pins the stock firmware's
+# /sbin/csr targets; see etc/init.d/rbs40v-bluetooth). The generic ipq40xx
+# inittab spawns a login shell on it as a second console, which holds the
+# port open and blocks bccmd/hciattach from ever reaching the chip -- and
+# procd does not appear to release/kill a running askfirst instance on a
+# live inittab edit + SIGHUP (confirmed live: it kept respawning until the
+# system was rebooted), so this must land before boot, not be a runtime fix.
+# Board-guarded: other ipq40xx boards may genuinely use ttyMSM1 as a real
+# console.
+[ "$(board_name)" = "netgear,rbs40v" ] || exit 0
+sed -i '/^ttyMSM1::askfirst:/d' /etc/inittab
+exit 0

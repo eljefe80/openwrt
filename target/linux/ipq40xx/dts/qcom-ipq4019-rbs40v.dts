@@ -147,12 +147,12 @@
                         status = "okay";
 			pinctrl-0 = <&i2c_0_pins>;
 			pinctrl-names = "default";
-/*
 			touchboard: cypress-touchboard@8 {
-				compatible = "";
+				compatible = "rbs40v-touchpad";
 				reg = <0x8>;
-			}
-*/
+				reset-gpios = <&tlmm 32 GPIO_ACTIVE_LOW>;
+			};
+
 			tricolor: led-controller@32 {
 				compatible = "ti,lp5562";
 				reg = <0x32>;
@@ -276,19 +276,23 @@
 			status = "okay";
 		};
 
-		ssphy@9a000 {
+		usb-phy@9a000 {
 			status = "okay";
 		};
 
-		ssphy@a6000 {
+		usb-phy@a6000 {
 			status = "okay";
 		};
 
-		usb2@60f8800 {
+		usb-phy@a8000 {
 			status = "okay";
 		};
 
-		usb3@8af8800 {
+		usb@60f8800 {
+			status = "okay";
+		};
+
+		usb@8af8800 {
 			status = "okay";
 		};
 
@@ -326,13 +330,27 @@
 			bias-disable;
 		};
 
-		hsphy@a6000 {
-			status = "okay";
-		};
 	};
 
 	regulator@1948000 {
 		status = "okay";
+	};
+
+	/* Stock firmware pulses GPIO30 (0 then immediately 1, no delay
+	 * between -- unlike the touchpad/switch reset pulses, which sleep
+	 * between edges) in its LAN-startup script, right alongside LED
+	 * setup. No comment there explains it and it isn't referenced
+	 * anywhere else in that firmware; best guess from the no-delay
+	 * pattern is a simple enable line (e.g. speaker amp power) rather
+	 * than a reset pulse, so model it as a boot-on fixed regulator
+	 * instead of wiring a second reset-gpio into the codec driver. */
+	regulator-speaker-en {
+		compatible = "regulator-fixed";
+		regulator-name = "speaker-enable";
+		gpio = <&tlmm 30 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		regulator-always-on;
 	};
 };
 
@@ -684,12 +702,6 @@
 			function = "mdc";
 			bias-pull-up;
 		};
-	};
-
-	bluetooth-enable {
-		gpio-hog;
-		gpios = <48 GPIO_ACTIVE_HIGH>;
-		output-high;
 	};
 
 };

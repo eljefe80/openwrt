@@ -1,0 +1,247 @@
+--- a/rbs40v-touchpad.c
++++ b/rbs40v-touchpad.c
+@@ -25,6 +25,7 @@
+ 	struct task_struct *kthread;
+ 	struct input_dev **button_dev;
+ 	struct led_classdev **led_dev;
++	u8 prev_flags;
+ };
+ 
+ static int mic_mute_gpio;
+@@ -57,61 +58,96 @@
+ #define NUM_LEDS	3
+ #define NUM_BUTTONS     4
+ 
++/* Confirmed on real hardware by reading raw I2C register bytes (not the
++ * word-wide smbus read this driver originally used) while touching the
++ * panel: status lives on REG_B (byte address 1), not REG_A (0) -- REG_A
++ * is a separate write-only-in-practice register the chip's own firmware
++ * uses to drive its LEDs directly (writes from the driver here had no
++ * observed effect once the chip had touch input; it appears to manage
++ * its own LED display autonomously). REG_B is bit-packed and NOT a flat
++ * mutually-exclusive enum: bits 7/6/5 (MIC_MUTE/ACTION_BTN/SPKR_MUTE)
++ * can be set simultaneously with each other AND with a live volume
++ * level in the low nibble (observed e.g. 0x8b = MIC_MUTE | VOL_11).
++ * The low nibble also holds the last-known slider position even with
++ * no button bits set (observed 0x01 at idle), so it's mirrored to the
++ * LED brightness unconditionally rather than gated behind a switch
++ * case, and the button bits need edge detection (prev_flags) since the
++ * register holds live/live-ish state across many polls while a button
++ * stays touched, not a single-poll momentary pulse.
++ */
+ #define RBS40V_REG_A    0
+ #define RBS40V_REG_B    1
+ #define RBS40V_INIT_DEV 1
++#define RBS40V_VOL_MASK 0x0f
++#define RBS40V_FLAG_MASK (SPKR_MUTE | ACTION_BTN | MIC_MUTE)
+ 
+ static int rbs40v_tp_worker(void *dev_id) {
+ 	struct rbs40v_tp_dev *tp = dev_id;
+ 	int ret;
++	u8 vol, flags, rising, changed;
++	u8 reg, val;
+ 
+ 	while (!kthread_should_stop()) {
+ 		msleep(20);
+ 
+-		/* Status is reported on the same register used to init the
+-		 * device (RBS40V_REG_A); carried over from the original
+-		 * reverse-engineered protocol notes, unverified on real HW.
+-		 */
+-		ret = i2c_smbus_read_word_data(tp->i2c, RBS40V_REG_A);
+-		if (ret < 0)
++		/* Deliberately NOT i2c_smbus_read_byte_data(): that issues a
++		 * single combined transaction (write register, repeated
++		 * START, read) with no STOP between the write and read
++		 * phases. A raw i2c-dev write() followed by a separate
++		 * read() -- which is what actually elicited real touch data
++		 * during live testing -- issues two distinct transactions
++		 * with a STOP in between. This chip's own firmware appears
++		 * to need that STOP; the combined/repeated-start form the
++		 * smbus call uses never got a real response. */
++		reg = RBS40V_REG_B;
++		ret = i2c_master_send(tp->i2c, &reg, 1);
++		if (ret != 1)
++			continue;
++		ret = i2c_master_recv(tp->i2c, &val, 1);
++		if (ret != 1)
+ 			continue;
++		ret = val;
+ 
+-		switch (ret) {
+-			case VOL_1:
+-			case VOL_2:
+-			case VOL_3:
+-			case VOL_4:
+-			case VOL_5:
+-			case VOL_6:
+-			case VOL_7:
+-			case VOL_8:
+-			case VOL_9:
+-			case VOL_10:
+-			case VOL_11:
+-				/* abuse LED brightness as a volume-level readout, per the
+-				 * header comment; sysfs .../brightness reflects level 1-11 */
+-				tp->led_dev[0]->brightness = ret;
+-				break;
+-			case SPKR_MUTE:
+-				/* momentary press+release: the register holds
+-				 * no separate up/down edge information */
+-				input_report_key(tp->button_dev[1], BTN_1, 1);
+-				input_sync(tp->button_dev[1]);
+-				input_report_key(tp->button_dev[1], BTN_1, 0);
+-				input_sync(tp->button_dev[1]);
+-				break;
+-			case ACTION_BTN:
+-				input_report_key(tp->button_dev[2], BTN_2, 1);
+-				input_sync(tp->button_dev[2]);
+-				input_report_key(tp->button_dev[2], BTN_2, 0);
+-				input_sync(tp->button_dev[2]);
+-				break;
+-			case MIC_MUTE:
+-				input_report_key(tp->button_dev[3], BTN_3, 1);
+-				input_sync(tp->button_dev[3]);
+-				input_report_key(tp->button_dev[3], BTN_3, 0);
+-				input_sync(tp->button_dev[3]);
+-				break;
++		vol = ret & RBS40V_VOL_MASK;
++		if (vol >= VOL_1 && vol <= VOL_11)
++			/* abuse LED brightness as a volume-level readout, per the
++			 * header comment; sysfs .../brightness reflects level 1-11 */
++			tp->led_dev[0]->brightness = vol;
++
++		flags = ret & RBS40V_FLAG_MASK;
++		rising = flags & ~tp->prev_flags;
++		changed = flags ^ tp->prev_flags;
++		tp->prev_flags = flags;
++
++		/* SPKR_MUTE and MIC_MUTE are NOT momentary "currently touching"
++		 * bits -- confirmed live by holding one for 20+ seconds with
++		 * the finger fully off the pad and seeing it never clear on
++		 * its own. They're toggle STATE bits: tapping the zone flips
++		 * current mute state, and the chip latches it there until
++		 * tapped again (matching the mic/speaker-mute LEDs, already
++		 * known to be chip-driven mute indicators, not touch
++		 * indicators). A rising-edge-only check catches the mute-on
++		 * tap but can never see the mute-off tap (a 1->0 transition),
++		 * so fire on any change for these two. ACTION_BTN (center
++		 * button) has no such LED/state semantics and is treated as
++		 * a real momentary press: rising-edge only. */
++		if (changed & SPKR_MUTE) {
++			input_report_key(tp->button_dev[1], BTN_1, 1);
++			input_sync(tp->button_dev[1]);
++			input_report_key(tp->button_dev[1], BTN_1, 0);
++			input_sync(tp->button_dev[1]);
++		}
++		if (rising & ACTION_BTN) {
++			input_report_key(tp->button_dev[2], BTN_2, 1);
++			input_sync(tp->button_dev[2]);
++			input_report_key(tp->button_dev[2], BTN_2, 0);
++			input_sync(tp->button_dev[2]);
++		}
++		if (changed & MIC_MUTE) {
++			input_report_key(tp->button_dev[3], BTN_3, 1);
++			input_sync(tp->button_dev[3]);
++			input_report_key(tp->button_dev[3], BTN_3, 0);
++			input_sync(tp->button_dev[3]);
+ 		}
+ 	}
+ 
+@@ -155,8 +191,15 @@
+ 		goto error;
+ 	}
+ 	if (reset_gpio) {
++		/* Stock firmware's boot script (etc/rc.d/S11DAC_PA) sleeps 6
++		 * full seconds before ever calling "acos_audio CX_RST", then
++		 * that reset sequence holds the line low for a full second,
++		 * not 1ms -- both timings were wrong here, most likely
++		 * leaving the chip's own internal boot/reset incomplete and
++		 * matching it never responding to touches afterward. */
++		msleep(6000);
+ 		gpiod_set_value_cansleep(reset_gpio, 1);
+-		msleep(1);
++		msleep(1000);
+ 		gpiod_set_value_cansleep(reset_gpio, 0);
+ 		msleep(10);
+ 	}
+@@ -273,14 +316,78 @@
+ 		goto err_free_speaker_gpio;
+ 	}
+ 
++	/* Retracing the exact live-testing sequence that got a real
++	 * response: REG_A was read several times first (a full register
++	 * dump, then a watch loop) BEFORE the write below was ever sent.
++	 * Writing REG_A alone, with no preceding read, was tested and did
++	 * NOT reproduce the effect -- the chip's firmware appears to need
++	 * to see a read of this register before a write to it is
++	 * accepted as a real command rather than ignored.
++	 *
++	 * This block deliberately runs BEFORE kthread_run() below (not
++	 * after, as first tried): with the polling kthread already
++	 * running, its own periodic reads of REG_B could interleave on
++	 * the bus between this read of REG_A and the write to REG_A --
++	 * each individual transaction is still atomic, but nothing kept
++	 * the read+write pair adjacent, and the manual i2cdump test that
++	 * actually got a reaction had nothing else on the bus at all. A
++	 * small delay is also inserted between the read and the write:
++	 * the manual test's two commands were typed by hand, seconds
++	 * apart, not issued back-to-back. */
++	{
++		u8 reg = RBS40V_REG_A;
++		u8 discard;
++		u8 wbuf[3] = { RBS40V_REG_A, RBS40V_INIT_DEV, 0 };
++		int wret = -1;
++		int attempt;
++
++		i2c_master_send(i2c, &reg, 1);
++		i2c_master_recv(i2c, &discard, 1);
++
++		/* The confirmed-working manual test issued the read and the
++		 * write as two separate CLI invocations, real seconds apart
++		 * (tool round-trip time), not back-to-back. A single fixed
++		 * delay here (tried: 50ms) still got ENXIO -- the chip
++		 * appears to need variable settle time coming out of its own
++		 * reset before it will ACK a write at all (ENXIO is an
++		 * address-phase NAK, not a data NAK), so retry with real
++		 * spacing instead of gambling on one delay value. */
++		for (attempt = 0; attempt < 20; attempt++) {
++			msleep(250);
++			wret = i2c_master_send(i2c, wbuf, sizeof(wbuf));
++			if (wret == sizeof(wbuf))
++				break;
++		}
++
++		/* i2c_smbus_write_word_data() uses an SMBUS-protocol
++		 * transaction, which this chip NAKed (-6/ENXIO) -- exactly
++		 * the same combined-transaction-vs-raw-STOP mismatch already
++		 * worked around on the read side. The only sequence
++		 * confirmed live (via a raw i2c-dev write() of reg+2 data
++		 * bytes, using i2cdump) is a plain two-transaction write, so
++		 * send it the same way here instead of via smbus. Its return
++		 * code is logged only, never propagated as probe()'s return
++		 * value -- a nonzero probe() return here would tell the
++		 * i2c/driver core probe() failed and free tp via devm, and
++		 * the kthread started below would then run against freed
++		 * memory (confirmed via a kernel panic in
++		 * i2c_transfer_buffer_flags reading a freed tp->i2c when this
++		 * write's result was returned directly). */
++		if (wret != sizeof(wbuf))
++			dev_warn(&i2c->dev, "init write to reg 0 failed after %d attempts: %d\n",
++				 attempt + 1, wret);
++		else
++			dev_info(&i2c->dev, "init write to reg 0 succeeded on attempt %d\n",
++				  attempt + 1);
++	}
++
+ 	tp->kthread = kthread_run(rbs40v_tp_worker, tp, "rbs40v_tp_worker");
+ 	if (IS_ERR(tp->kthread)) {
+ 		ret = PTR_ERR(tp->kthread);
+ 		dev_err(&i2c->dev, "Could not start worker thread: %d.\n", ret);
+ 		goto err_free_speaker_gpio;
+ 	}
+-
+-	return i2c_smbus_write_word_data(i2c, RBS40V_REG_A, RBS40V_INIT_DEV);
++	return 0;
+ 
+ err_free_speaker_gpio:
+ 	if (gpio_is_valid(speaker_mute_gpio))

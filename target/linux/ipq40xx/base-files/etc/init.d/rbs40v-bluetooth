@@ -1,0 +1,116 @@
+#!/bin/sh /etc/rc.common
+# RBS40V CSR8811 Bluetooth bring-up. The stock firmware ships a fully working
+# sequence for this in /sbin/csr ("csr_load"), a factory RF-test script that
+# is never actually invoked anywhere in the stock boot process (not in any
+# rc.d/init.d script, not referenced by any binary) -- the hardware and pskey
+# data are real and wired up (confirmed in the devicetree: a genuine csr,8811
+# child node with a real enable-gpios on the same UART Netgear's script
+# targets), Netgear just never shipped Bluetooth as a product feature on this
+# specific board. This script revives that real sequence: GPIO48 reset pulse,
+# then bccmd loads the CSR8811's persistent-store config over BCSP, then
+# hciattach switches the chip from BCSP to H4 (RTS/CTS) so it comes up as a
+# normal hci0.
+#
+# bccmd itself has no OpenWrt/bluez5 equivalent -- bluez5 dropped it even
+# under --enable-deprecated, it's a BlueZ4-era CSR vendor tool -- see
+# package/bccmd, which builds it from real upstream BlueZ 4.101 source
+# against its own private libbluetooth (not this system's bluez5
+# libbluetooth, which removed/changed functions it depends on).
+#
+# Netgear's script pulses GPIO48 with no settle delay at all; that's
+# unvalidated dead code, not a proven timing, and the touchpad's chip on this
+# same board needed far more settle time than its own naive code implied --
+# the 1s delays below are a starting guess to be corrected against real
+# hardware behavior, not a fact carried over from stock.
+START=96
+
+# procd parses /etc/inittab once at its own PID1 startup, before any
+# /etc/uci-defaults script -- including the one that strips ttyMSM1's
+# askfirst entry for this board -- ever runs. On a real persistent flash
+# install that fix still self-heals from the SECOND boot onward (the edited
+# file persists in the overlay), but a from-scratch RAM-boot test -- or the
+# very first boot of a real flash -- never gets past that, so it can't be
+# relied on alone.
+#
+# A continuously-running background kill loop was tried and made things
+# WORSE: it killed bccmd itself the instant bccmd opened the port (same fd,
+# wrong process, before a by-name filter was added), and even after fixing
+# that, killing the getty at the exact moment of open produced a kernel-
+# level transient I/O error instead of a clean result. The one pattern
+# confirmed live to fully succeed twice (real BD address, real manufacturer
+# ID, hci0 UP RUNNING) is a single kill immediately before each open, with
+# no delay and no ongoing loop -- procd's respawn takes roughly a second,
+# which is enough of a window for bccmd/hciattach to grab the port and
+# start a real session before the getty can reclaim it.
+kill_tty_holder() {
+	local pid
+	pid=$(ls -la /proc/*/fd 2>/dev/null | grep -B4 "$1" | grep -oE '^/proc/[0-9]+' | grep -oE '[0-9]+')
+	[ -n "$pid" ] && kill -9 $pid 2>/dev/null
+}
+
+# Even with the kill_tty_holder timing above right, this sequence is
+# inherently a bit flaky in practice (confirmed live across many runs: full
+# clean success some of the time, a partial pskey load or an hciattach
+# timeout other times, with no single deterministic point of failure) --
+# plausibly exactly why Netgear never shipped this as a real feature.
+# Rather than chase an ever more precise one-shot timing fix, retry the
+# whole bring-up a few times and accept whichever attempt actually reaches
+# UP RUNNING.
+try_bringup() {
+	local c base gpio
+
+	# GPIO48 here means tlmm pin 48, not global sysfs GPIO 48 -- the legacy
+	# /sys/class/gpio/export interface wants the GLOBAL number, which is
+	# tlmm's gpiochip "base" (varies by what else registered earlier;
+	# confirmed 512 on this build, but computed here instead of hardcoded
+	# so a module-order change elsewhere can't silently break this).
+	for c in /sys/class/gpio/gpiochip*; do
+		[ "$(cat "$c/label" 2>/dev/null)" = "1000000.pinctrl" ] && base=$(cat "$c/base")
+	done
+	if [ -z "$base" ]; then
+		logger -t rbs40v-bluetooth "tlmm gpiochip (label 1000000.pinctrl) not found"
+		return 1
+	fi
+	gpio=$((base + 48))
+
+	killall hciattach 2>/dev/null
+	echo "$gpio" > /sys/class/gpio/export 2>/dev/null
+	echo out > "/sys/class/gpio/gpio$gpio/direction"
+	echo 0 > "/sys/class/gpio/gpio$gpio/value"
+	sleep 1
+	echo 1 > "/sys/class/gpio/gpio$gpio/value"
+	sleep 1
+
+	kill_tty_holder /dev/ttyMSM1
+	bccmd -t bcsp -b 115200 -d /dev/ttyMSM1 psload -r /etc/bluetooth/pb_207_csr8x11.psr
+
+	kill_tty_holder /dev/ttyMSM1
+	hciattach -s 115200 /dev/ttyMSM1 bcsp 115200
+	sleep 1
+
+	# CSR chips need a warm reset after a pskey load before they'll answer
+	# standard HCI commands -- confirmed live: "hciconfig hci0 up" reliably
+	# timed out without this, and reliably worked with it. Stock's /sbin/csr
+	# ships this exact vendor command under its separate "reset" case, but
+	# never calls it from csr_load itself -- it's a manual factory-test
+	# tool with discrete steps, not an all-in-one bring-up pipeline, so this
+	# script has to chain them together itself.
+	hcitool cmd 0x3F 0x0013 c2 02 00 09 00 4d 0e 02 40 00 00 00 00 00 00 00 00 00 00
+	sleep 2
+
+	hciconfig hci0 up 2>/dev/null
+	hciconfig hci0 2>/dev/null | grep -q "UP RUNNING"
+}
+
+start() {
+	[ "$(board_name)" = "netgear,rbs40v" ] || return 0
+
+	local attempt
+	for attempt in 1 2 3 4 5; do
+		try_bringup && { logger -t rbs40v-bluetooth "hci0 up on attempt $attempt"; return 0; }
+		logger -t rbs40v-bluetooth "bring-up attempt $attempt failed, retrying"
+		sleep 2
+	done
+	logger -t rbs40v-bluetooth "hci0 bring-up failed after $attempt attempts"
+	return 1
+}

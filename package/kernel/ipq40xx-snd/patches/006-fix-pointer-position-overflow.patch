@@ -1,0 +1,21 @@
+--- a/ipq40xx-pcm-i2s.c
++++ b/ipq40xx-pcm-i2s.c
+@@ -268,7 +268,18 @@
+ 
+ 	pcm_rtpriv = runtime->private_data;
+ 
++	/* The mbox descriptor ring backing curr_pos can be sized larger
++	 * than the ALSA-negotiated buffer (observed: 130 descriptors vs.
++	 * the ~33 periods that actually fit in runtime->buffer_size), so
++	 * the raw played-offset can run past buffer_size well before the
++	 * hardware ring itself wraps. The .pointer contract requires the
++	 * return value to always stay within [0, buffer_size), so wrap it
++	 * here rather than changing the descriptor ring's own wrap point,
++	 * which other code relies on for indexing.
++	 */
+ 	ret = bytes_to_frames(runtime, pcm_rtpriv->curr_pos);
++	if (runtime->buffer_size)
++		ret %= runtime->buffer_size;
+ 	return ret;
+ }
+ 

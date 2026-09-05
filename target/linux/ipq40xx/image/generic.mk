@@ -1064,12 +1064,18 @@ define Device/netgear_rbs40v
 		append-rootfs | pad-rootfs | netgear-dni
 	IMAGE/factory.chk := append-ubi | boot-script-rbs40v | netgear-chk
 	IMAGE/sysupgrade.bin/squashfs := append-rootfs | pad-to 64k | \
-		sysupgrade-tar rootfs=$$$$@ | append-metadata
+		sysupgrade-tar kernel=$$$$(BIN_DIR)/$$(KERNEL_IMAGE) rootfs=$$$$@ | append-metadata
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct ath10k-firmware-qca9887-ct \
-		ath10k-firmware-qca988x-ct kmod-usb-audio kmod-bluetooth \
+		ath10k-firmware-qca988x-ct kmod-usb-audio kmod-hid kmod-hid-generic \
+		kmod-input-evdev kmod-usb-hid kmod-bluetooth \
 		kmod-hci-uart bluez-libs bluez-utils \
 		libpthread librt alsa-lib libncurses alsa-ucm-conf alsa-utils \
-		kmod-ipq40xx-snd kmod-rbs40v-touchpad
+		libusb-1.0 libatomic libudev-zero libevdev usbids usbutils \
+		kmod-ipq40xx-snd kmod-rbs40v-touchpad \
+		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-iptunnel \
+		kmod-udptunnel4 kmod-udptunnel6 kmod-vxlan vxlan ip-full \
+		ip-bridge libbpf libelf libgpg-error libgcrypt libiwinfo dawn umdns \
+		mosquitto-client-nossl rbs40v-inittab led-ring-mqtt bccmd
 	DEVICE_MODEL := RBS40V
 	DEVICE_VARIANT := v1 ap.dk07.1-c1
 	DEVICE_DTS_CONFIG := config@ap.dk07.1-c1
