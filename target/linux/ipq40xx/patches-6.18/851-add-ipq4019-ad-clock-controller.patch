@@ -1,6 +1,5 @@
-diff -Naur linux-5.15.130/drivers/clk/qcom/adcc-ipq4019.c linux-5.15.130-new/drivers/clk/qcom/adcc-ipq4019.c
---- linux-5.15.130/drivers/clk/qcom/adcc-ipq4019.c	1969-12-31 16:00:00.000000000 -0800
-+++ linux-5.15.130-new/drivers/clk/qcom/adcc-ipq4019.c	2023-10-31 16:51:53.744573517 -0700
+--- /dev/null
++++ b/drivers/clk/qcom/adcc-ipq4019.c
 @@ -0,0 +1,409 @@
 +/*
 + * Copyright (c) 2014, 2015 The Linux Foundation. All rights reserved.
@@ -411,9 +410,8 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/adcc-ipq4019.c linux-5.15.130-new/dri
 +MODULE_DESCRIPTION("ADSS CLOCK ipq40xx Driver");
 +MODULE_LICENSE("GPL v2");
 +MODULE_ALIAS("platform:adcc-ipq40xx");
-diff -Naur linux-5.15.130/drivers/clk/qcom/clk-qcapll.c linux-5.15.130-new/drivers/clk/qcom/clk-qcapll.c
---- linux-5.15.130/drivers/clk/qcom/clk-qcapll.c	1969-12-31 16:00:00.000000000 -0800
-+++ linux-5.15.130-new/drivers/clk/qcom/clk-qcapll.c	2023-10-26 08:33:06.468786064 -0700
+--- /dev/null
++++ b/drivers/clk/qcom/clk-qcapll.c
 @@ -0,0 +1,197 @@
 +/*
 + * Copyright (c) 2013, 2015 The Linux Foundation. All rights reserved.
@@ -612,9 +610,8 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-qcapll.c linux-5.15.130-new/drive
 +	.set_rate = clk_qcapll_set_rate,
 +};
 +EXPORT_SYMBOL_GPL(clk_qcapll_ops);
-diff -Naur linux-5.15.130/drivers/clk/qcom/clk-qcapll.h linux-5.15.130-new/drivers/clk/qcom/clk-qcapll.h
---- linux-5.15.130/drivers/clk/qcom/clk-qcapll.h	1969-12-31 16:00:00.000000000 -0800
-+++ linux-5.15.130-new/drivers/clk/qcom/clk-qcapll.h	2023-10-08 20:02:12.976917015 -0700
+--- /dev/null
++++ b/drivers/clk/qcom/clk-qcapll.h
 @@ -0,0 +1,60 @@
 +/*
 + * Copyright (c) 2013, 2015 The Linux Foundation. All rights reserved.
@@ -676,10 +673,9 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-qcapll.h linux-5.15.130-new/drive
 +						struct clk_qcapll, clkr)
 +
 +#endif
-diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg2.c linux-5.15.130-new/drivers/clk/qcom/clk-rcg2.c
---- linux-5.15.130/drivers/clk/qcom/clk-rcg2.c	2023-10-08 19:05:30.266977576 -0700
-+++ linux-5.15.130-new/drivers/clk/qcom/clk-rcg2.c	2023-10-26 08:53:43.909130295 -0700
-@@ -823,8 +823,396 @@
+--- a/drivers/clk/qcom/clk-rcg2.c
++++ b/drivers/clk/qcom/clk-rcg2.c
+@@ -1202,8 +1202,396 @@ const struct clk_ops clk_pixel_ops = {
  };
  EXPORT_SYMBOL_GPL(clk_pixel_ops);
  
@@ -1075,11 +1071,10 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg2.c linux-5.15.130-new/drivers
 -				    struct clk_rate_request *req)
 +				struct clk_rate_request *req)
  {
- 	struct clk_rate_request parent_req = { };
+ 	struct clk_rate_request parent_req = { .min_rate = 0, .max_rate = ULONG_MAX };
  	struct clk_rcg2_gfx3d *cgfx = to_clk_rcg2_gfx3d(hw);
-diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg.h linux-5.15.130-new/drivers/clk/qcom/clk-rcg.h
---- linux-5.15.130/drivers/clk/qcom/clk-rcg.h	2023-10-08 19:05:30.266977576 -0700
-+++ linux-5.15.130-new/drivers/clk/qcom/clk-rcg.h	2023-10-26 08:30:07.978521609 -0700
+--- a/drivers/clk/qcom/clk-rcg.h
++++ b/drivers/clk/qcom/clk-rcg.h
 @@ -12,7 +12,7 @@
  struct freq_tbl {
  	unsigned long freq;
@@ -1089,7 +1084,7 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg.h linux-5.15.130-new/drivers/
  	u16 m;
  	u16 n;
  };
-@@ -50,6 +50,18 @@
+@@ -67,6 +67,18 @@ struct pre_div {
  };
  
  /**
@@ -1108,7 +1103,7 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg.h linux-5.15.130-new/drivers/
   * struct src_sel - source selector
   * @src_sel_shift: lowest bit of source selection field
   * @parent_map: map from software's parent index to hardware's src_sel field
-@@ -153,6 +165,62 @@
+@@ -179,6 +191,62 @@ struct clk_rcg2 {
  
  #define to_clk_rcg2(_hw) container_of(to_clk_regmap(_hw), struct clk_rcg2, clkr)
  
@@ -1171,10 +1166,9 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/clk-rcg.h linux-5.15.130-new/drivers/
  struct clk_rcg2_gfx3d {
  	u8 div;
  	struct clk_rcg2 rcg;
-diff -Naur linux-5.15.130/drivers/clk/qcom/Kconfig linux-5.15.130-new/drivers/clk/qcom/Kconfig
---- linux-5.15.130/drivers/clk/qcom/Kconfig	2023-10-08 20:07:29.440628370 -0700
-+++ linux-5.15.130-new/drivers/clk/qcom/Kconfig	2023-10-08 20:02:12.936917046 -0700
-@@ -141,6 +141,13 @@
+--- a/drivers/clk/qcom/Kconfig
++++ b/drivers/clk/qcom/Kconfig
+@@ -275,6 +275,13 @@ config IPQ_GCC_5424
  	  Say Y if you want to use peripheral devices such as UART, SPI,
  	  i2c, USB, SD/eMMC, etc.
  
@@ -1188,10 +1182,9 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/Kconfig linux-5.15.130-new/drivers/cl
  config IPQ_GCC_6018
  	tristate "IPQ6018 Global Clock Controller"
  	help
-diff -Naur linux-5.15.130/drivers/clk/qcom/Makefile linux-5.15.130-new/drivers/clk/qcom/Makefile
---- linux-5.15.130/drivers/clk/qcom/Makefile	2023-10-08 20:07:17.356640816 -0700
-+++ linux-5.15.130-new/drivers/clk/qcom/Makefile	2023-10-09 09:56:19.073890868 -0700
-@@ -14,6 +14,7 @@
+--- a/drivers/clk/qcom/Makefile
++++ b/drivers/clk/qcom/Makefile
+@@ -14,6 +14,7 @@ clk-qcom-y += clk-regmap-mux-div.o
  clk-qcom-y += clk-regmap-phy-mux.o
  clk-qcom-$(CONFIG_KRAIT_CLOCKS) += clk-krait.o
  clk-qcom-y += clk-hfpll.o
@@ -1199,16 +1192,16 @@ diff -Naur linux-5.15.130/drivers/clk/qcom/Makefile linux-5.15.130-new/drivers/c
  clk-qcom-y += reset.o
  clk-qcom-$(CONFIG_QCOM_GDSC) += gdsc.o
  
-@@ -37,4 +37,5 @@
+@@ -36,6 +37,7 @@ obj-$(CONFIG_IPQ_APSS_5424) += apss-ipq5
  obj-$(CONFIG_IPQ_APSS_6018) += apss-ipq6018.o
  obj-$(CONFIG_IPQ_CMN_PLL) += ipq-cmn-pll.o
  obj-$(CONFIG_IPQ_GCC_4019) += gcc-ipq4019.o
 +obj-$(CONFIG_IPQ_ADCC_4019) += adcc-ipq4019.o
  obj-$(CONFIG_IPQ_GCC_5018) += gcc-ipq5018.o
  obj-$(CONFIG_IPQ_GCC_5332) += gcc-ipq5332.o
-diff -Naur linux-5.15.130/include/dt-bindings/clock/qcom,adcc-ipq4019.h linux-5.15.130-new/include/dt-bindings/clock/qcom,adcc-ipq4019.h
---- linux-5.15.130/include/dt-bindings/clock/qcom,adcc-ipq4019.h	1969-12-31 16:00:00.000000000 -0800
-+++ linux-5.15.130-new/include/dt-bindings/clock/qcom,adcc-ipq4019.h	2023-10-08 20:02:25.640907264 -0700
+ obj-$(CONFIG_IPQ_GCC_5424) += gcc-ipq5424.o
+--- /dev/null
++++ b/include/dt-bindings/clock/qcom,adcc-ipq4019.h
 @@ -0,0 +1,44 @@
 +/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
 + *
