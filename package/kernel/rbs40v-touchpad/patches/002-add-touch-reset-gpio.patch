@@ -1,0 +1,41 @@
+--- a/rbs40v-touchpad.c
++++ b/rbs40v-touchpad.c
+@@ -13,6 +13,7 @@
+ #include <linux/kernel.h>
+ #include <linux/of_gpio.h>
+ #include <linux/gpio.h>                 // Required for the GPIO functions
++#include <linux/gpio/consumer.h>
+ #include <linux/interrupt.h>            // Required for the IRQ code
+ #include <linux/kthread.h>
+ #include <linux/delay.h>
+@@ -129,6 +130,7 @@
+ 	int i;
+ 	struct device_node *np;
+ 	struct rbs40v_tp_dev *tp;
++	struct gpio_desc *reset_gpio;
+ 
+ 	tp = devm_kzalloc(&i2c->dev, sizeof(struct rbs40v_tp_dev), GFP_KERNEL);
+ 	if (!tp) {
+@@ -143,6 +145,22 @@
+ 	speaker_mute_gpio = of_get_named_gpio(np, "speaker-pin", 0);
+ 	of_node_put(np);
+ 
++	/* Netgear's stock firmware pulses the touch controller's reset
++	 * line (raw GPIO32, active-low) before talking to it over I2C;
++	 * mirror that sequence here so the chip is in a known state. */
++	reset_gpio = devm_gpiod_get_optional(&i2c->dev, "reset", GPIOD_OUT_LOW);
++	if (IS_ERR(reset_gpio)) {
++		ret = PTR_ERR(reset_gpio);
++		dev_err(&i2c->dev, "failed to get reset gpio: %d\n", ret);
++		goto error;
++	}
++	if (reset_gpio) {
++		gpiod_set_value_cansleep(reset_gpio, 1);
++		msleep(1);
++		gpiod_set_value_cansleep(reset_gpio, 0);
++		msleep(10);
++	}
++
+ 	if (gpio_is_valid(mic_mute_gpio)) {
+ 		ret = gpio_request_one(mic_mute_gpio, GPIOF_OUT_INIT_LOW,
+ 					"rbs40v_mic_mute");
