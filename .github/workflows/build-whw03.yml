@@ -1,0 +1,58 @@
+name: ASU build - WHW03
+
+# WHW03 needs NO fork changes (see ~/share/projects/opensoho-asu-stack/TARGETS.md
+# on the build host) -- this checks out upstream openwrt/openwrt, not this fork.
+# Deliberately NOT push-triggered off this repo (nothing here would ever change
+# for this device) -- manual dispatch + a periodic schedule to pick up new
+# upstream commits. Never add a pull_request/pull_request_target trigger to
+# this file: this repo is public and the runner is self-hosted (see
+# guinevere's own gha-runner setup notes) -- only push/workflow_dispatch/
+# schedule are safe trigger types here.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+jobs:
+  build:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Checkout upstream OpenWrt
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: master
+          path: openwrt-src
+
+      - name: Seed target config
+        working-directory: openwrt-src
+        run: |
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_ipq40xx=y
+          CONFIG_TARGET_ipq40xx_generic=y
+          CONFIG_TARGET_ipq40xx_generic_DEVICE_linksys_whw03v2=y
+          EOF
+          make defconfig
+
+      - name: Download sources
+        working-directory: openwrt-src
+        run: make download -j"$(nproc)"
+
+      - name: Build (make world)
+        working-directory: openwrt-src
+        run: make -j"$(nproc)" world
+
+      - name: Publish downloads-tree artifacts
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          OUT=/srv/asu-downloads/snapshots/targets/ipq40xx/generic
+          mkdir -p "$OUT"
+          cp -v bin/targets/ipq40xx/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
+          rm -rf "$OUT/packages"
+          cp -rv bin/targets/ipq40xx/generic/packages "$OUT"/
+          cd "$OUT"
+          sha256sum openwrt-imagebuilder-*.tar.* > sha256sums
+          echo "Published:"
+          ls -la "$OUT"
