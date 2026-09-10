@@ -38,6 +38,7 @@ jobs:
           CONFIG_TARGET_ipq40xx=y
           CONFIG_TARGET_ipq40xx_generic=y
           CONFIG_TARGET_ipq40xx_generic_DEVICE_linksys_whw03v2=y
+          CONFIG_IB=y
           EOF
           make defconfig
 
