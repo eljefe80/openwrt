@@ -1,0 +1,44 @@
+# Custom ImageBuilder image, derived directly from openwrt/docker's own
+# Containerfile/setup.sh recipe (fetched and compared line-for-line, not
+# guessed) -- the only real changes: keys/*.asc holds OUR public key
+# (eljefe80-openwrt-fork-signing, fingerprint
+# 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF -- see
+# opensoho-asu-stack/secrets/README.md) instead of upstream's, and build args
+# point FILE_HOST at guinevere's own downloads tree instead of
+# downloads.openwrt.org. This exists because ImageBuilder does not recompile
+# from source per build -- it bakes a fixed DEVICE_PACKAGES list into the
+# image itself, so our WHW03 mesh-packages patch (generic.mk on this branch)
+# only reaches real ASU builds if the imagebuilder image is rebuilt from this
+# patched source and ASU's base_container points at THIS image, not
+# upstream's ghcr.io/openwrt/imagebuilder.
+ARG BASE_IMAGE=ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21
+
+FROM $BASE_IMAGE
+ARG USER=buildbot
+ARG WORKDIR=/builder/
+ARG CMD="/bin/bash"
+
+ARG DOWNLOAD_FILE="imagebuilder-.*x86_64.tar.[xz|zst]"
+ARG TARGET=ipq40xx/generic
+ARG FILE_HOST=http://10.203.16.45
+ARG VERSION_PATH=snapshots
+
+ENV DOWNLOAD_FILE=$DOWNLOAD_FILE
+ENV TARGET=$TARGET
+ENV FILE_HOST=$FILE_HOST
+ENV VERSION_PATH=$VERSION_PATH
+
+USER $USER
+WORKDIR $WORKDIR
+
+ADD --chown=buildbot:buildbot keys/*.asc /builder/keys/
+COPY --chmod=0755 setup.sh /builder/setup.sh
+
+ARG RUN_SETUP=1
+ENV RUN_SETUP=$RUN_SETUP
+RUN if [ "$RUN_SETUP" -eq 1 ]; then /builder/setup.sh; fi
+
+ENTRYPOINT [ ]
+
+ENV CMD_ENV=${CMD}
+CMD ${CMD_ENV}

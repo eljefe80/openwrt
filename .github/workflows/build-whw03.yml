@@ -1,0 +1,123 @@
+name: ASU build - WHW03
+
+# UPDATED 2026-09-11: now checks out eljefe80/openwrt@whw03-mesh-packages, NOT
+# upstream openwrt/openwrt -- WHW03 needed its own fork branch the moment
+# mesh packages (dawn, umdns, owut, kmod-vxlan, ip-full/bridge,
+# wpad-mesh-mbedtls, luci-app-attendedsysupgrade) got baked into
+# DEVICE_PACKAGES for linksys_whw03v2 (target/linux/ipq40xx/image/generic.mk
+# on that branch), instead of requested per-build via ASU's `packages` field
+# like the original ~/nanoclaw/whw03-mesh/HOWTO-mesh-node.md did. This also
+# means ASU's base_container can no longer be the official
+# ghcr.io/openwrt/imagebuilder -- ImageBuilder doesn't recompile from source
+# per build, it bakes a fixed DEVICE_PACKAGES list into the image itself, so
+# our patch only reaches real builds via a custom-built image from THIS
+# patched source (see the new steps below + docker/imagebuilder/ in this same
+# branch). Real, hard-required GPG signing now applies too -- the
+# openwrt/docker Containerfile setup.sh this reuses verifies sha256sums.asc
+# and hard-fails without it. See opensoho-asu-stack/secrets/README.md for the
+# signing key (public half only; private key lives solely on guinevere).
+#
+# Still deliberately NOT push-triggered off this repo (manual dispatch +
+# weekly schedule) -- this repo is public and the runner is self-hosted, so
+# only push/workflow_dispatch/schedule are safe trigger types, and even
+# push here would need to be scoped to this exact branch, never a catch-all.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+  packages: write # needed to push the imagebuilder image to ghcr.io
+
+jobs:
+  build:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Checkout eljefe80/openwrt (whw03-mesh-packages)
+        uses: actions/checkout@v4
+        with:
+          repository: eljefe80/openwrt
+          ref: whw03-mesh-packages
+          path: openwrt-src
+
+      - name: Update and install feeds
+        working-directory: openwrt-src
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Seed target config
+        working-directory: openwrt-src
+        run: |
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_ipq40xx=y
+          CONFIG_TARGET_ipq40xx_generic=y
+          CONFIG_TARGET_ipq40xx_generic_DEVICE_linksys_whw03v2=y
+          CONFIG_IB=y
+          EOF
+          make defconfig
+
+      - name: Download sources
+        working-directory: openwrt-src
+        run: make download -j"$(nproc)"
+
+      - name: Build (make world)
+        working-directory: openwrt-src
+        run: make -j"$(nproc)" world
+
+      - name: Publish downloads-tree artifacts
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          TREE=/srv/asu-downloads
+          OUT="$TREE/snapshots/targets/ipq40xx/generic"
+          mkdir -p "$OUT"
+          cp -v bin/targets/ipq40xx/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
+          rm -rf "$OUT/packages"
+          cp -rv bin/targets/ipq40xx/generic/packages "$OUT"/
+          cp -v bin/targets/ipq40xx/generic/profiles.json "$OUT"/
+
+          cd "$OUT"
+          # -b (binary mode) is REQUIRED, not cosmetic: openwrt/docker's
+          # setup.sh parses this file with `cut -d "*" -f 2` to find the
+          # archive filename -- text-mode sha256sum (no asterisk) silently
+          # produces a line that cut can't parse, breaking the image build
+          # with no obvious error pointing back here. Confirmed against the
+          # real format at downloads.openwrt.org/snapshots/targets/ipq40xx/generic/sha256sums.
+          sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
+
+          # Real GPG signature, hard-required by setup.sh's `gpg --verify`.
+          # Private key lives only in gha-runner's own keyring on this host --
+          # see opensoho-asu-stack/secrets/README.md.
+          gpg --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
+            --detach-sign --armor --output sha256sums.asc sha256sums
+
+          echo "Published:"
+          ls -la "$OUT"
+
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"ipq40xx/generic": "arm_cortex-a7_neon-vfpv4"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+
+          [ -f "$TREE/.versions.json" ] || cat > "$TREE/.versions.json" <<'JSONEOF'
+          {"stable_version": "", "oldstable_version": "", "upcoming_version": "", "versions_list": []}
+          JSONEOF
+
+      - name: Build custom ImageBuilder image
+        working-directory: openwrt-src/docker/imagebuilder
+        run: |
+          podman build \
+            --build-arg TARGET=ipq40xx/generic \
+            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg VERSION_PATH=snapshots \
+            --build-arg RUN_SETUP=1 \
+            -t ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-master \
+            -f Containerfile .
+
+      - name: Push ImageBuilder image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-master
