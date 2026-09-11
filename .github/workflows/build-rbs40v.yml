@@ -1,0 +1,113 @@
+name: ASU build - RBS40V
+
+# RBS40V builds from eljefe80/openwrt's own `rbs40v` branch (Jeff's real
+# hardware-bringup branch, NOT a CI-only branch like whw03-mesh-packages) --
+# push-triggered because any real commit to this branch legitimately means
+# the firmware should be rebuilt. Be aware: this means every future push to
+# `rbs40v` now also kicks off a real ~1hr CI build, not just the workflow
+# file additions that landed it.
+#
+# led-ring-mqtt is NOT vendored in this branch's package/ dir (confirmed --
+# checked before writing this, not assumed) -- cloned fresh each run, per
+# the existing project memory's instruction. mosquitto-client-nossl,
+# rbs40v-inittab, bccmd are already in-tree on this branch.
+#
+# Real gotcha already on record for this board (see TARGETS.md/project
+# memory): DEVICE_PACKAGES alone does NOT get led-ring-mqtt built --
+# defconfig's auto-select doesn't reliably pick up a freshly-cloned external
+# package here, needs an explicit CONFIG_PACKAGE_led-ring-mqtt=y too.
+#
+# This repo is public and the runner is self-hosted -- only push (to this
+# exact branch, never a catch-all)/workflow_dispatch/schedule are safe
+# trigger types. Never add pull_request/pull_request_target.
+
+on:
+  push:
+    branches: [rbs40v]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Checkout eljefe80/openwrt (rbs40v)
+        uses: actions/checkout@v4
+        with:
+          repository: eljefe80/openwrt
+          ref: rbs40v
+          path: openwrt-src
+
+      - name: Clone led-ring-mqtt package
+        run: git clone --depth 1 https://github.com/eljefe80/led-ring-mqtt.git openwrt-src/package/led-ring-mqtt
+
+      - name: Update and install feeds
+        working-directory: openwrt-src
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Seed target config
+        working-directory: openwrt-src
+        run: |
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_ipq40xx=y
+          CONFIG_TARGET_ipq40xx_generic=y
+          CONFIG_TARGET_ipq40xx_generic_DEVICE_netgear_rbs40v=y
+          CONFIG_IB=y
+          CONFIG_PACKAGE_led-ring-mqtt=y
+          EOF
+          make defconfig
+
+      - name: Download sources
+        working-directory: openwrt-src
+        run: make download -j"$(nproc)"
+
+      - name: Build (make world)
+        working-directory: openwrt-src
+        run: make -j"$(nproc)" world
+
+      - name: Publish downloads-tree artifacts
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          TREE=/srv/asu-downloads
+          OUT="$TREE/rbs40v/targets/ipq40xx/generic"
+          mkdir -p "$OUT"
+          cp -v bin/targets/ipq40xx/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
+          rm -rf "$OUT/packages"
+          cp -rv bin/targets/ipq40xx/generic/packages "$OUT"/
+          cp -v bin/targets/ipq40xx/generic/profiles.json "$OUT"/
+
+          cd "$OUT"
+          sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
+          gpg --batch --yes --pinentry-mode loopback \
+            --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
+            --detach-sign --armor --output sha256sums.asc sha256sums
+
+          echo "Published:"
+          ls -la "$OUT"
+
+          # Own dedicated branch path ("rbs40v", not "snapshots") -- nothing
+          # else will ever share this exact path, so a plain overwrite is
+          # fine here, unlike WHW03/MX60W's shared snapshots/.targets.json.
+          echo '{"ipq40xx/generic": "arm_cortex-a7_neon-vfpv4"}' > "$TREE/rbs40v/.targets.json"
+
+      - name: Build custom ImageBuilder image
+        working-directory: openwrt-src/docker/imagebuilder
+        run: |
+          podman build \
+            --build-arg TARGET=ipq40xx/generic \
+            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg VERSION_PATH=rbs40v \
+            --build-arg RUN_SETUP=1 \
+            -t ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-openwrt-RBS40V \
+            -f Containerfile .
+
+      - name: Push ImageBuilder image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-openwrt-RBS40V
