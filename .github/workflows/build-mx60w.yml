@@ -45,6 +45,11 @@ jobs:
 
       - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
         run: |
+          # rm -rf first: this plain shell clone (unlike the actions/checkout
+          # step above) isn't auto-cleaned between runs on this persistent
+          # self-hosted runner -- a retry after a failed run hit "destination
+          # path already exists" for real.
+          rm -rf docker-imagebuilder-src
           git clone --depth 1 --filter=blob:none --sparse https://github.com/eljefe80/openwrt.git docker-imagebuilder-src
           cd docker-imagebuilder-src
           git sparse-checkout set docker/imagebuilder
