@@ -455,21 +455,35 @@ endef
 # Missing DSA Setup
 #TARGET_DEVICES += edgecore_oap100
 
-define Device/engenius_eap1300
-	$(call Device/FitImage)
-	DEVICE_VENDOR := EnGenius
-	DEVICE_MODEL := EAP1300
-	DEVICE_ALT0_VENDOR := EnGenius
-	DEVICE_ALT0_MODEL := EAP1300EXT
-	DEVICE_DTS_CONFIG := config@4
-	BOARD_NAME := eap1300
-	SOC := qcom-ipq4018
-	KERNEL_SIZE := 5120k
-	IMAGE_SIZE := 25344k
-	IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
-	DEFAULT := n
-endef
-TARGET_DEVICES += engenius_eap1300
+# DISABLED 2026-09-11 on this personal fork branch only (not touching upstream):
+# CONFIG_IB=y (needed to produce the ASU imagebuilder tarball) forces the build
+# system to COMPILE every device on this subtarget regardless of Kconfig
+# selection (include/image.mk's Device/Check: _COMPILE_TARGET is gated on
+# `CONFIG_IB` OR the device's own Kconfig selection, so CONFIG_IB=y alone makes
+# it true for everyone). This device's DEFAULT:=n only suppresses it inside a
+# later imagebuilder invocation (IB=1), not during this initial build -- so it
+# still gets compiled. RBS40V's added kernel subsystems (sound/BT/input core,
+# pulled in by its DEVICE_PACKAGES) grew the shared ipq40xx/generic kernel
+# image just enough to push this specific device's near-zero size margin over
+# (5384540 > 5242880 bytes, confirmed via a real build failure) -- not a bug
+# in RBS40V's config, just an unrelated device with no headroom to spare.
+# This fork doesn't build for eap1300 at all, so removing it here is safe;
+# don't do this upstream.
+#define Device/engenius_eap1300
+#	$(call Device/FitImage)
+#	DEVICE_VENDOR := EnGenius
+#	DEVICE_MODEL := EAP1300
+#	DEVICE_ALT0_VENDOR := EnGenius
+#	DEVICE_ALT0_MODEL := EAP1300EXT
+#	DEVICE_DTS_CONFIG := config@4
+#	BOARD_NAME := eap1300
+#	SOC := qcom-ipq4018
+#	KERNEL_SIZE := 5120k
+#	IMAGE_SIZE := 25344k
+#	IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
+#	DEFAULT := n
+#endef
+#TARGET_DEVICES += engenius_eap1300
 
 define Device/engenius_eap2200
 	$(call Device/FitImage)
