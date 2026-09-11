@@ -91,7 +91,13 @@ jobs:
           # Real GPG signature, hard-required by setup.sh's `gpg --verify`.
           # Private key lives only in gha-runner's own keyring on this host --
           # see opensoho-asu-stack/secrets/README.md.
-          gpg --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
+          # --batch --pinentry-mode loopback is REQUIRED even with a
+          # passphrase-less key: bare `gpg --detach-sign` in this non-
+          # interactive CI context failed with "gpg: cannot open '/dev/tty':
+          # No such device or address" -- confirmed, not guessed, by testing
+          # both forms directly on the runner before touching this file.
+          gpg --batch --pinentry-mode loopback \
+            --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
             --detach-sign --armor --output sha256sums.asc sha256sums
 
           echo "Published:"
