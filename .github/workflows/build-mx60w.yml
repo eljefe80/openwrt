@@ -1,0 +1,120 @@
+name: ASU build - MX60W
+
+# MX60W builds from real upstream openwrt/openwrt@master -- genuinely stock,
+# zero fork changes, the only one of the four devices still like this.
+# Deliberately NOT push-triggered off eljefe80/openwrt (nothing there would
+# ever change for this device) -- manual dispatch + weekly schedule, same
+# reasoning WHW03 originally had before it needed its own fork branch.
+#
+# Real design correction vs. that original WHW03 workflow: docker/imagebuilder/
+# only exists in the FORK (eljefe80/openwrt), not upstream -- so unlike a
+# fork-branch build where one checkout covers both the source and the
+# Containerfile, this needs a SEPARATE fetch just for that directory. Uses a
+# plain sparse git clone (not actions/checkout's sparse-checkout options) for
+# a predictable, directly-testable command.
+#
+# base_container is a single global asu.toml setting, now pointed at
+# ghcr.io/eljefe80/imagebuilder -- MX60W's source is stock, but it still
+# needs its OWN pushed image under that same registry (even though its
+# content is identical to what the official upstream image already has)
+# purely so the one shared setting keeps working across all four devices.
+#
+# This repo is public and the runner is self-hosted -- only
+# workflow_dispatch/schedule/push-to-a-branch-only-Jeff-pushes-to are safe
+# trigger types. Never add pull_request/pull_request_target.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Checkout upstream OpenWrt
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: master
+          path: openwrt-src
+
+      - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/eljefe80/openwrt.git docker-imagebuilder-src
+          cd docker-imagebuilder-src
+          git sparse-checkout set docker/imagebuilder
+
+      - name: Update and install feeds
+        working-directory: openwrt-src
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Seed target config
+        working-directory: openwrt-src
+        run: |
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_apm821xx=y
+          CONFIG_TARGET_apm821xx_nand=y
+          CONFIG_TARGET_apm821xx_nand_DEVICE_meraki_mx60=y
+          CONFIG_IB=y
+          EOF
+          make defconfig
+
+      - name: Download sources
+        working-directory: openwrt-src
+        run: make download -j"$(nproc)"
+
+      - name: Build (make world)
+        working-directory: openwrt-src
+        run: make -j"$(nproc)" world
+
+      - name: Publish downloads-tree artifacts
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          TREE=/srv/asu-downloads
+          OUT="$TREE/snapshots/targets/apm821xx/nand"
+          mkdir -p "$OUT"
+          cp -v bin/targets/apm821xx/nand/openwrt-imagebuilder-*.tar.* "$OUT"/
+          rm -rf "$OUT/packages"
+          cp -rv bin/targets/apm821xx/nand/packages "$OUT"/
+          cp -v bin/targets/apm821xx/nand/profiles.json "$OUT"/
+
+          cd "$OUT"
+          sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
+          gpg --batch --yes --pinentry-mode loopback \
+            --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
+            --detach-sign --armor --output sha256sums.asc sha256sums
+
+          echo "Published:"
+          ls -la "$OUT"
+
+          # Shared "snapshots" branch/path with WHW03 -- merge our own
+          # target key in with jq, never overwrite (WHW03's ipq40xx/generic
+          # entry must survive this).
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"apm821xx/nand": "powerpc_464fp"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+
+      - name: Build custom ImageBuilder image
+        working-directory: docker-imagebuilder-src/docker/imagebuilder
+        run: |
+          podman build \
+            --build-arg TARGET=apm821xx/nand \
+            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg VERSION_PATH=snapshots \
+            --build-arg RUN_SETUP=1 \
+            -t ghcr.io/eljefe80/imagebuilder:apm821xx-nand-master \
+            -f Containerfile .
+
+      - name: Push ImageBuilder image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/eljefe80/imagebuilder:apm821xx-nand-master
