@@ -68,7 +68,17 @@ jobs:
 
       - name: Build (make world)
         working-directory: openwrt-src
-        run: make -j"$(nproc)" world
+        # On failure, re-run once at -j1 V=s: the previous retry's
+        # "ERROR: target/linux failed to build" printed with NO underlying
+        # diagnostic at all under default quiet mode -- OpenWrt's own hint
+        # text says exactly this ("re-run make with -j1 V=s ... to see
+        # what's going on"). Doubles time on a real failure, but only then.
+        run: |
+          make -j"$(nproc)" world || {
+            echo "::group::Verbose re-run for diagnostics (make -j1 V=s world)"
+            make -j1 V=s world
+            exit 1
+          }
 
       - name: Publish downloads-tree artifacts
         working-directory: openwrt-src
