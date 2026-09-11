@@ -54,12 +54,41 @@ jobs:
         working-directory: openwrt-src
         run: |
           set -euo pipefail
-          OUT=/srv/asu-downloads/snapshots/targets/ipq40xx/generic
+          TREE=/srv/asu-downloads
+          OUT="$TREE/snapshots/targets/ipq40xx/generic"
           mkdir -p "$OUT"
           cp -v bin/targets/ipq40xx/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
           cp -rv bin/targets/ipq40xx/generic/packages "$OUT"/
+
+          # profiles.json is what ASU's build-request validation actually
+          # checks per-target (reload_profiles/validate_request) -- found and
+          # fixed 2026-09-10 after the first successful build still couldn't
+          # serve a real request. Always copy fresh; single target, safe to
+          # overwrite outright (unlike .targets.json below, which is shared
+          # across every device workflow and must be merged, not clobbered).
+          cp -v bin/targets/ipq40xx/generic/profiles.json "$OUT"/
+
           cd "$OUT"
           sha256sum openwrt-imagebuilder-*.tar.* > sha256sums
           echo "Published:"
           ls -la "$OUT"
+
+          # .targets.json (ASU's reload_targets) is shared across every
+          # device workflow under this same "snapshots" branch -- merge our
+          # one key in with jq rather than overwrite, so a WattBox/MX60W run
+          # later doesn't erase this entry (or vice versa).
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"ipq40xx/generic": "arm_cortex-a7_neon-vfpv4"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+
+          # .versions.json (ASU's reload_versions) just needs to exist and be
+          # valid JSON with these 4 keys -- ASU unconditionally adds the
+          # literal string "SNAPSHOT" to app.versions once this fetches
+          # successfully, regardless of the actual field values (confirmed by
+          # reading asu/util.py's add_versions call directly). Create once,
+          # never needs touching again for this single-branch setup.
+          [ -f "$TREE/.versions.json" ] || cat > "$TREE/.versions.json" <<'JSONEOF'
+          {"stable_version": "", "oldstable_version": "", "upcoming_version": "", "versions_list": []}
+          JSONEOF
