@@ -823,7 +823,13 @@ define Device/linksys_whw03v2
 	UBINIZE_OPTS := -E 5    # EOD marks to "hide" factory sig at EOF
 	IMAGES += factory.bin
 	IMAGE/factory.bin  := append-kernel | pad-to $$$$(KERNEL_SIZE) | append-ubi | linksys-image type=WHW03v2
-	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct kmod-leds-pca963x kmod-spi-dev kmod-hci-uart
+	# Mesh packages baked in 2026-09-11 (matches ~/nanoclaw/whw03-mesh/HOWTO-mesh-node.md's
+	# per-build package list, moved into DEVICE_PACKAGES so every build already has them --
+	# this is the whole reason WHW03 now needs its own fork branch instead of building
+	# straight off upstream master).
+	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct kmod-leds-pca963x kmod-spi-dev kmod-hci-uart \
+		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-vxlan ip-full ip-bridge \
+		dawn umdns owut luci-ssl luci-app-attendedsysupgrade
 endef
 TARGET_DEVICES += linksys_whw03v2
 
