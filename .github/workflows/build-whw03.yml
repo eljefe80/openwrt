@@ -96,7 +96,13 @@ jobs:
           # interactive CI context failed with "gpg: cannot open '/dev/tty':
           # No such device or address" -- confirmed, not guessed, by testing
           # both forms directly on the runner before touching this file.
-          gpg --batch --pinentry-mode loopback \
+          # --yes is ALSO required: this writes into the persistent
+          # downloads-tree directory (not an ephemeral workdir), so a re-run
+          # must be able to overwrite its own prior output -- a first failed
+          # attempt (before --batch was added) left a stub sha256sums.asc
+          # behind that a later run then refused to overwrite with "File
+          # exists", confirmed the hard way.
+          gpg --batch --yes --pinentry-mode loopback \
             --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
             --detach-sign --armor --output sha256sums.asc sha256sums
 
