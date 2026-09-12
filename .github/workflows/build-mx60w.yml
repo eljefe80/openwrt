@@ -78,7 +78,16 @@ jobs:
 
       - name: Download sources
         working-directory: openwrt-src
-        run: make download -j"$(nproc)"
+        # Also wrapped in the buildworker container -- see build-whw03.yml
+        # for the full explanation: `download` builds the whole host-tools
+        # chain (mkhash included) on the bare host otherwise, and `make
+        # world`'s later containerized run just reuses those stale,
+        # glibc-incompatible binaries instead of rebuilding them.
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make download -j"$(nproc)"'
 
       - name: Build (make world)
         working-directory: openwrt-src
