@@ -41,6 +41,13 @@ jobs:
           ref: rbs40v
           path: openwrt-src
 
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # actions/checkout's default clean does NOT reliably purge these on
+        # this self-hosted runner -- see build-whw03.yml for the full
+        # explanation. Force a clean slate every run.
+        run: rm -rf staging_dir build_dir bin
+
       - name: Clone led-ring-mqtt package
         run: git clone --depth 1 https://github.com/eljefe80/led-ring-mqtt.git openwrt-src/package/led-ring-mqtt
 
