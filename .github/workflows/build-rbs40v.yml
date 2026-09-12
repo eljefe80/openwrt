@@ -41,6 +41,16 @@ jobs:
           ref: rbs40v
           path: openwrt-src
 
+      - name: Login to ghcr.io (for pulls, not just the later push)
+        # Anonymous pulls of ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21
+        # started 403ing (confirmed via a real failed run: "Requesting bearer
+        # token: received unexpected HTTP status: 403 Forbidden") once
+        # --pull=always forced a real per-run manifest check instead of
+        # silently reusing whatever was already cached locally -- GHCR rate-
+        # limits anonymous pulls per-IP, and today's many retries used it up.
+        # Authenticated pulls get a much higher limit; reuses the same
+        # GITHUB_TOKEN the later push step already relies on.
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Wipe stale host-tool build state
         working-directory: openwrt-src
         # actions/checkout's default clean does NOT reliably purge these on
