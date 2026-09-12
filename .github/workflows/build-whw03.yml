@@ -42,6 +42,16 @@ jobs:
           ref: whw03-mesh-packages
           path: openwrt-src
 
+      - name: Add openwisp-config feed
+        working-directory: openwrt-src
+        # For opensoho check-in. Real facts confirmed against the actual
+        # package repo (github.com/openwisp/openwisp-config), not guessed:
+        # package name is exactly "openwisp-config", no branch suffix needed
+        # (defaults to its own master). The actual server URL + shared secret
+        # are NOT baked in here -- see this repo's own commit message and
+        # opensoho-asu-stack/CI.md for why (public repo, can't hold a secret).
+        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+
       - name: Update and install feeds
         working-directory: openwrt-src
         run: |
@@ -56,6 +66,7 @@ jobs:
           CONFIG_TARGET_ipq40xx_generic=y
           CONFIG_TARGET_ipq40xx_generic_DEVICE_linksys_whw03v2=y
           CONFIG_IB=y
+          CONFIG_PACKAGE_openwisp-config=y
           EOF
           make defconfig
 
@@ -65,7 +76,22 @@ jobs:
 
       - name: Build (make world)
         working-directory: openwrt-src
-        run: make -j"$(nproc)" world
+        # Real bug, found and fixed 2026-09-12: host tools (fakeroot etc.)
+        # compiled directly on guinevere's bare Ubuntu 26.04 (glibc 2.38+)
+        # can't run inside the imagebuilder container later, which is based
+        # on ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 (Debian, glibc
+        # 2.31) -- confirmed via a real build failure
+        # ("GLIBC_2.38 not found") on an actual ASU build request, not
+        # caught by review. Fix: compile inside that same buildworker image
+        # instead of on the bare host, so host tools match the glibc they'll
+        # actually run against. --entrypoint "" is required: the image's own
+        # /entry.sh silently drops back to the "buildbot" UID regardless of
+        # --user, confirmed directly on the runner before touching this file.
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
 
       - name: Publish downloads-tree artifacts
         working-directory: openwrt-src
