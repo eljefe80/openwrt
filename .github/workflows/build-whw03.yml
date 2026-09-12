@@ -72,7 +72,21 @@ jobs:
 
       - name: Download sources
         working-directory: openwrt-src
-        run: make download -j"$(nproc)"
+        # Also wrapped in the buildworker container: `download` depends on
+        # tools/flock/compile (include/toplevel.mk) whenever
+        # staging_dir/host/bin/flock doesn't exist yet, which pulls in the
+        # WHOLE host-tools chain (mkhash included). Running this step on the
+        # bare host built those tools against guinevere's glibc 2.38+ and
+        # "prepared"-stamped them -- the later containerized `make world`
+        # step then reused those stale binaries instead of rebuilding them,
+        # so wrapping only `make world` wasn't enough. Confirmed via a real
+        # failed run: mkhash failed with "GLIBC_2.33/2.34 not found" *inside*
+        # the container, meaning it was built outside it.
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make download -j"$(nproc)"'
 
       - name: Build (make world)
         working-directory: openwrt-src
