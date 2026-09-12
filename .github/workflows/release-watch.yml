@@ -133,7 +133,11 @@ gh pr create --base $BRANCH --head merge-${TAG}-${BRANCH} --title \"Merge OpenWr
           set -euo pipefail
           command -v mosquitto_pub >/dev/null || sudo apt-get update -qq && sudo apt-get install -y -qq mosquitto-clients
           TAG="${{ steps.check.outputs.latest_tag }}"
+          # No -r (retain): this is a one-time event notification, not a
+          # persistent state -- a retained message would re-fire the HA
+          # automation on every HA restart/reconnect for an old release,
+          # not just a genuinely new one.
           mosquitto_pub -h mqtt.wdwconsulting.net -p 1883 \
             -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
-            -t "openwrt/release/latest" -r -q 1 \
+            -t "openwrt/release/latest" -q 1 \
             -m "{\"tag\": \"$TAG\", \"detected_at\": \"$(date -u +%FT%TZ)\"}"
