@@ -52,6 +52,10 @@ jobs:
       - name: Clone wbctl package
         run: git clone --depth 1 https://github.com/eljefe80/wbctl.git openwrt-src/package/wbctl
 
+      - name: Add openwisp-config feed
+        working-directory: openwrt-src
+        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+
       - name: Update and install feeds
         working-directory: openwrt-src
         run: |
@@ -67,6 +71,7 @@ jobs:
           CONFIG_TARGET_lpc32xx_generic_DEVICE_snapav_wattbox-wb300vb=y
           CONFIG_IB=y
           CONFIG_PACKAGE_wbctl=y
+          CONFIG_PACKAGE_openwisp-config=y
           # CONFIG_PACKAGE_dnsmasq is not set
           # CONFIG_PACKAGE_firewall4 is not set
           # CONFIG_PACKAGE_nftables is not set
@@ -83,7 +88,16 @@ jobs:
 
       - name: Build (make world)
         working-directory: openwrt-src
-        run: make -j"$(nproc)" world
+        # Wrapped in the buildworker container (see WHW03 workflow for the
+        # full explanation): host tools compiled directly on guinevere's
+        # bare Ubuntu 26.04 (glibc 2.38+) failed a real ASU build request
+        # with "GLIBC_2.38 not found" against
+        # ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 (glibc 2.31).
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
 
       - name: Publish downloads-tree artifacts
         working-directory: openwrt-src
