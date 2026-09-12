@@ -191,3 +191,13 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           podman push ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-master
+
+      - name: Prune dangling podman images
+        # --pull=always above means every run leaves the previous
+        # buildworker/imagebuilder layers dangling (untagged) on guinevere.
+        # if: always() so this still runs on a failed build too -- disk
+        # pressure from repeated pulls is exactly worst on a run that keeps
+        # failing and retrying. Only removes dangling/untagged images, never
+        # anything currently tagged and in use.
+        if: always()
+        run: podman image prune -f
