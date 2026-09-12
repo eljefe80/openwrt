@@ -43,6 +43,13 @@ jobs:
           ref: master
           path: openwrt-src
 
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # actions/checkout's default clean does NOT reliably purge these on
+        # this self-hosted runner -- see build-whw03.yml for the full
+        # explanation. Force a clean slate every run.
+        run: rm -rf staging_dir build_dir bin
+
       - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
         run: |
           # rm -rf first: this plain shell clone (unlike the actions/checkout
