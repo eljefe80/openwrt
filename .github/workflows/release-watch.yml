@@ -104,20 +104,28 @@ jobs:
               echo "- \`$BRANCH\`: PR opened" >> "$GITHUB_STEP_SUMMARY"
             else
               git merge --abort || true
+              # Built line-by-line (not a multi-line quoted string) so every
+              # line of this run: block keeps the same YAML indentation --
+              # a raw multi-line string here previously broke YAML parsing
+              # entirely (lines fell below the block's indentation level,
+              # confirmed via a real failed run + local yaml.safe_load repro).
+              printf '%s\n' \
+                "release-watch.yml tried to merge upstream release \`$TAG\` into \`$BRANCH\` and hit conflicts, so no PR was opened (a merge commit with conflict markers would break this branch's next build). Merge by hand:" \
+                "" \
+                '```' \
+                "git fetch origin $BRANCH" \
+                "git fetch https://github.com/openwrt/openwrt.git $TAG" \
+                "git checkout -b merge-${TAG}-${BRANCH} origin/$BRANCH" \
+                "git merge $TAG" \
+                "# resolve conflicts, then:" \
+                "git push origin merge-${TAG}-${BRANCH}" \
+                "gh pr create --base $BRANCH --head merge-${TAG}-${BRANCH} --title \"Merge OpenWrt $TAG into $BRANCH\"" \
+                '```' \
+                > /tmp/conflict-issue-body.md
               gh issue create \
                 --repo eljefe80/openwrt \
                 --title "Manual merge needed: OpenWrt $TAG -> $BRANCH (conflicts)" \
-                --body "release-watch.yml tried to merge upstream release \`$TAG\` into \`$BRANCH\` and hit conflicts, so no PR was opened (a merge commit with conflict markers would break this branch's next build). Merge by hand:
-
-\`\`\`
-git fetch origin $BRANCH
-git fetch https://github.com/openwrt/openwrt.git $TAG
-git checkout -b merge-${TAG}-${BRANCH} origin/$BRANCH
-git merge $TAG
-# resolve conflicts, then:
-git push origin merge-${TAG}-${BRANCH}
-gh pr create --base $BRANCH --head merge-${TAG}-${BRANCH} --title \"Merge OpenWrt $TAG into $BRANCH\"
-\`\`\`" \
+                --body-file /tmp/conflict-issue-body.md \
                 || echo "issue create skipped/failed for $BRANCH (may already exist)"
               echo "- \`$BRANCH\`: CONFLICT, issue filed" >> "$GITHUB_STEP_SUMMARY"
             fi
