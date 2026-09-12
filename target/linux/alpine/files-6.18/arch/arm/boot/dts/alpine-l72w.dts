@@ -126,32 +126,66 @@
 	};
 };
 
-/* port0: SGMII-2.5G, forced 1000M/full, no external PHY
- * (legacy DT: ethernet/port0). serdes-grp/lane UNVERIFIED — see
- * file header. */
+/* port0: SGMII-2.5G. CONFIRMED WORKING on real hardware 2026-09-12 —
+ * booted via network, eth0 came up, correct real MAC
+ * 00:1c:7f:73:8e:6c assigned automatically (from bootloader-programmed
+ * scratch registers — al_eth_board_params_get() in al_eth.c reads
+ * those before ever consulting these al,* properties, so this
+ * probably isn't even what set media-type in practice, but it's
+ * confirmed harmless/correct either way). serdes-grp/lane below are
+ * still unverified guesses — irrelevant in practice for now since the
+ * scratch registers are apparently authoritative. */
 &eth0 {
 	status = "okay";
 	al,media-type = <6>; /* AL_ETH_BOARD_MEDIA_TYPE_SGMII_2_5G */
-	al,serdes-grp = <0>; /* TODO unverified */
-	al,serdes-lane = <0>; /* TODO unverified */
+	al,serdes-grp = <0>; /* TODO unverified, likely irrelevant */
+	al,serdes-lane = <0>; /* TODO unverified, likely irrelevant */
 	al,an-disable;
 	al,dont-override-serdes;
 };
 
-/* port2: SGMII-2.5G, forced 1000M/full, no external PHY
- * (legacy DT: ethernet/port2). serdes-grp/lane UNVERIFIED. */
+/* port2: SGMII-2.5G. NOT YET RE-TESTED after the mdio-collision fix
+ * (alpine.dtsi) — this previously failed to probe entirely
+ * ("cannot create duplicate filename '/class/mdio_bus/mdio-al-eth-0'")
+ * because it and eth0 both had an "mdio" child node; alpine.dtsi no
+ * longer gives this one an mdio child. Re-test before trusting this
+ * works. */
 &eth2 {
 	status = "okay";
 	al,media-type = <6>;
-	al,serdes-grp = <0>; /* TODO unverified */
-	al,serdes-lane = <1>; /* TODO unverified */
+	al,serdes-grp = <0>; /* TODO unverified, likely irrelevant */
+	al,serdes-lane = <1>; /* TODO unverified, likely irrelevant */
 	al,an-disable;
 	al,dont-override-serdes;
 };
 
-/* port1 and port3 (RGMII) are NOT modeled here yet — see the
- * "KNOWN GAPS" note at the top of this file. Getting these two
- * SGMII ports booting and link-testing is the first real milestone;
- * RGMII needs either a driver patch or more research before it's
- * worth guessing DT properties for it. eth1 (ethernet@1,0 in
- * alpine.dtsi) stays disabled until then. */
+/* The 4th real MAC (al_eth3 in U-Boot's own naming, PCI 0000:00:03.0
+ * to the kernel) — CONFIRMED WORKING on real hardware 2026-09-12,
+ * RGMII, fixed-link 1000M/full, no external PHY, entirely via
+ * bootloader-programmed scratch registers (see alpine.dtsi's eth3
+ * node comment) even before this override existed.
+ *
+ * MAC address: al_eth.c never reads a devicetree "mac-address"
+ * property at all — it reads adapter->mac_addr from a hardware
+ * register that U-Boot itself pre-programs (al_eth_mac_addr_read() on
+ * ec_base in al_eth.c), and only falls back to a random MAC via
+ * eth_hw_addr_random() if that register holds an invalid address. A
+ * "mac-address" property here would be silently ignored — do not add
+ * one. This MAC came up random because Check Point's own firmware
+ * doesn't officially use/program this 4th interface. Since the real
+ * factory MAC isn't available through any mechanism this driver
+ * consults, and this needs to work across any unit of this hardware
+ * (not just this one), leave it unset here — either let it stay
+ * kernel-random or have users assign one via the normal OpenWrt UCI
+ * `option macaddr` on this interface, same as any other board with an
+ * interface lacking a factory-assigned address.
+ *
+ * port1 (RGMII WITH a real external PHY per the legacy DT's "ext_phy"
+ * node) is still unaccounted for — this working interface reported
+ * "ext phy exists No", so it's NOT the same port as legacy port1. The
+ * external-PHY port is still an open question; see the KNOWN GAPS note
+ * at the top of this file.
+ */
+&eth3 {
+	status = "okay";
+};

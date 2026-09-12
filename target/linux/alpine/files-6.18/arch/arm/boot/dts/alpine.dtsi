@@ -255,10 +255,47 @@
 				al,mdio-freq = <1>;
 				al,an-disable;
 				al,dont-override-serdes;
-				eth2_mdio: mdio {
-					#address-cells = <1>;
-					#size-cells = <0>;
-				};
+				/* NOTE: deliberately no "mdio" child here. The
+				 * al_eth driver's al_eth_sw_mdio_probe()
+				 * hardcodes bus->name = "mdio-al-eth" and
+				 * bus->id = "<name>-0" for EVERY instance
+				 * (drivers/net/ethernet/al/al_eth.c) — a second
+				 * "mdio" child anywhere else collides with
+				 * whichever eth node registers first and fails
+				 * with "cannot create duplicate filename
+				 * '/class/mdio_bus/mdio-al-eth-0'", aborting
+				 * that device's probe entirely (confirmed live
+				 * on the Check Point L-72W, 2026-09-12). None of
+				 * this SoC's ports need this bus in practice —
+				 * leave it only on eth0, never add it here or on
+				 * eth3 below.
+				 */
+			};
+
+			/* 4th internal MAC — genuinely real hardware, but never
+			 * declared by the RB1100AHx4 reference this file was
+			 * split from (that board only wires up 3 of the 4
+			 * al_eth instances via external DSA switches). This is
+			 * how U-Boot itself refers to the 4 MACs at the "Net:"
+			 * banner: al_eth0/1/2/3 — this is al_eth3. Confirmed
+			 * present via bare PCI-style auto-discovery on the
+			 * Check Point L-72W (PCI address 0000:00:03.0) even
+			 * with NO matching OF child node at all: this driver
+			 * tries reading board params from bootloader-programmed
+			 * hardware scratch registers FIRST
+			 * (al_eth_board_params_get() in al_eth.c) and only
+			 * falls back to these al,* DT properties if that read
+			 * fails — so a real MAC can probe and work correctly
+			 * with zero DT properties set, as this one did (came up
+			 * RGMII, fixed 1000M, no external PHY, but with a
+			 * kernel-random MAC address since nothing assigned one).
+			 * Enabling it here mainly gets it a stable name and a
+			 * real MAC address instead of relying on that implicit
+			 * bare discovery.
+			 */
+			eth3: ethernet@3,0 {
+				reg = <0x1800 0 0 0 0>;
+				status = "disabled";
 			};
 
 		};

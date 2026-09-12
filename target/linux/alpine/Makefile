@@ -6,7 +6,7 @@ BOARDNAME:=Annapurna Labs Alpine
 FEATURES:=squashfs nand fpu ramdisk usb pci pcie
 CPU_TYPE:=cortex-a15
 CPU_SUBTYPE:=neon-vfpv4
-SUBTARGETS:=mikrotik
+SUBTARGETS:=mikrotik checkpoint
 
 KERNEL_PATCHVER:=6.18
 
