@@ -42,6 +42,18 @@ jobs:
           ref: whw03-mesh-packages
           path: openwrt-src
 
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # actions/checkout's default clean does NOT reliably purge these on
+        # this self-hosted runner -- confirmed via a real failure: mkhash
+        # was still glibc-incompatible on a run where BOTH `download` and
+        # `world` were already containerized, meaning it wasn't rebuilt at
+        # all, just reused from an earlier run's staging_dir/build_dir that
+        # predates the container-wrap fix (built against guinevere's bare
+        # glibc). Force a clean slate every run so host tools always get
+        # (re)built inside the container, never carried over stale.
+        run: rm -rf staging_dir build_dir bin
+
       - name: Add openwisp-config feed
         working-directory: openwrt-src
         # For opensoho check-in. Real facts confirmed against the actual
