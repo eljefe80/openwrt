@@ -39,6 +39,20 @@ jobs:
   watch:
     runs-on: [self-hosted, asu-builder]
     steps:
+      - name: Ensure gh CLI is available
+        # New dependency for this runner -- the build-*.yml workflows never
+        # needed gh (podman/git/curl/gpg only). Confirmed missing via a real
+        # failed run: "gh: command not found", exit 127. Official install
+        # method (cli.github.com/packages), not assuming it's in the distro's
+        # default repos.
+        run: |
+          command -v gh >/dev/null && exit 0
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gh
+
       - name: Clone eljefe80/openwrt (full history, all branches)
         run: |
           rm -rf openwrt-src
