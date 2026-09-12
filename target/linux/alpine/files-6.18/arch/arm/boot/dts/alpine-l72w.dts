@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+//
+// Check Point L-72W (1470/1490 WiFi SMB appliance).
+// SoC: Annapurna Labs Alpine AL31400, board-cfg id "alpine_db (S2-L72)".
+//
+// DRAFT — not yet boot-tested. Written from a real boot-time device tree
+// pulled off the appliance's own flash (Check Point's proprietary legacy
+// DT schema, kernel 3.10) translated into the mainline al_eth binding
+// used by the closed/unmerged openwrt/openwrt PR #23189 (MikroTik
+// RB1100AHx4, same AL31400 SoC family). See project_l72w_openwrt.md for
+// full provenance and the original legacy DT dump.
+//
+// KNOWN GAPS (do not treat this file as ready to boot):
+//  - port1's external PHY (real copper PHY at MDIO addr 1, per the legacy
+//    DT's "ext_phy" node) is NOT supported by al_eth.c's own
+//    al_eth_board_params_from_dt() as pulled from PR #23189 — that
+//    function unconditionally sets phy_exist = AL_FALSE and
+//    phy_mdio_addr = 0, so it never reads a per-port external-PHY MDIO
+//    address from the DT at all. The driver DOES have real PHY-connect/
+//    MDIO-bus code elsewhere, but that path is for reaching an external
+//    switch chip's management interface, not a per-port line PHY. A real
+//    port1 will need either a driver patch adding that DT parsing back,
+//    or confirming (e.g. via a scope on the board) that port1 is
+//    actually a fixed-link at the MAC and the "ext_phy" in the legacy DT
+//    is Check Point's own driver fork's concept, not something mainline
+//    al_eth.c needs at all.
+//  - port0/port2 al,serdes-grp / al,serdes-lane values below are
+//    UNVERIFIED GUESSES, not measured. The legacy DT's "serdes" pinctrl
+//    block only gives per-group active-lane bitmasks, not a
+//    port-to-group mapping — RB1100AHx4 uses lanes 3/2/1 for its
+//    eth0/eth1/eth2 respectively (not a fixed 0/1/2 convention), so this
+//    genuinely varies per board and must be determined by real hardware
+//    testing (wrong values just mean the port doesn't link up — no
+//    hardware risk, just iterate).
+//  - port3 (RGMII, no external PHY in the legacy DT, forced 1000M) is
+//    modeled here as a fixed-link, unverified.
+//  - LEDs, buttons, any relay wiring: completely unknown for this board,
+//    intentionally omitted rather than guessed. Check the legacy DT's
+//    pinctrl/gpio sections (not yet done) or physically inspect before
+//    adding these.
+//  - USB (Renesas xHCI on the 3rd PCIe port) and the 2 WiFi radios
+//    (Qualcomm Atheros on the other 2 PCIe ports) are not modeled here
+//    at all yet — pcie-external0/1/2 nodes need adding once ethernet
+//    boots.
+
+/dts-v1/;
+
+#include "alpine.dtsi"
+
+/ {
+	model = "Check Point L-72W";
+	compatible = "checkpoint,l72w", "annapurna-labs,alpine";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	memory {
+		device_type = "memory";
+		/* 2GiB per the legacy DT / boot log ("DRAM: 2 GiB") */
+		reg = <0x0 0x0 0x0 0x80000000>;
+	};
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&nand {
+	status = "okay";
+	/* Real partition table, from the legacy DT's own nand-flash node
+	 * (matches /proc/mtd on the live device exactly). Kept as raw MTD
+	 * partitions here rather than assuming UBI boundaries — ubifs/
+	 * ubifs-2/storage are UBI volumes ON TOP of these, not something
+	 * to declare as fixed-partitions sub-layout without re-checking.
+	 */
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "al_boot";
+			reg = <0x0 0x300000>;
+		};
+		partition@200000 {
+			label = "device_tree";
+			reg = <0x200000 0x100000>;
+		};
+		partition@380000 {
+			label = "linux_kernel";
+			reg = <0x380000 0x1000000>;
+		};
+		partition@1380000 {
+			label = "ubifs";
+			reg = <0x1380000 0xdc00000>;
+		};
+		partition@ef80000 {
+			label = "linux_kernel2";
+			reg = <0xef80000 0x1000000>;
+		};
+		partition@ff80000 {
+			label = "ubifs-2";
+			reg = <0xff80000 0xdc00000>;
+		};
+		partition@1db80000 {
+			label = "default-sw";
+			reg = <0x1db80000 0xc400000>;
+		};
+		partition@29f80000 {
+			label = "logs";
+			reg = <0x29f80000 0x40000000>;
+		};
+		partition@69f80000 {
+			label = "preset";
+			reg = <0x69f80000 0x100000>;
+		};
+		partition@6a080000 {
+			label = "adsl";
+			reg = <0x6a080000 0x100000>;
+		};
+		partition@6a180000 {
+			label = "storage";
+			reg = <0x6a180000 0x15e80000>;
+		};
+	};
+};
+
+/* port0: SGMII-2.5G, forced 1000M/full, no external PHY
+ * (legacy DT: ethernet/port0). serdes-grp/lane UNVERIFIED — see
+ * file header. */
+&eth0 {
+	status = "okay";
+	al,media-type = <6>; /* AL_ETH_BOARD_MEDIA_TYPE_SGMII_2_5G */
+	al,serdes-grp = <0>; /* TODO unverified */
+	al,serdes-lane = <0>; /* TODO unverified */
+	al,an-disable;
+	al,dont-override-serdes;
+};
+
+/* port2: SGMII-2.5G, forced 1000M/full, no external PHY
+ * (legacy DT: ethernet/port2). serdes-grp/lane UNVERIFIED. */
+&eth2 {
+	status = "okay";
+	al,media-type = <6>;
+	al,serdes-grp = <0>; /* TODO unverified */
+	al,serdes-lane = <1>; /* TODO unverified */
+	al,an-disable;
+	al,dont-override-serdes;
+};
+
+/* port1 and port3 (RGMII) are NOT modeled here yet — see the
+ * "KNOWN GAPS" note at the top of this file. Getting these two
+ * SGMII ports booting and link-testing is the first real milestone;
+ * RGMII needs either a driver patch or more research before it's
+ * worth guessing DT properties for it. eth1 (ethernet@1,0 in
+ * alpine.dtsi) stays disabled until then. */
