@@ -82,7 +82,13 @@ jobs:
         # world`'s later containerized run just reuses those stale,
         # glibc-incompatible binaries instead of rebuilding them.
         run: |
-          podman run --rm --user 0:0 --entrypoint "" \
+          # --pull=always added after the wipe-workspace fix above STILL didn't
+          # fix this: proved locally that a genuinely fresh pull of this exact
+          # image builds a fully glibc-2.14-compatible mkhash, so the remaining
+          # explanation is guinevere's rootless podman using a STALE cached
+          # local copy of this tag from earlier smoke-testing, never the same
+          # bits ghcr.io serves now. Forces a fresh pull every run.
+          podman run --rm --pull=always --user 0:0 --entrypoint "" \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c 'make download -j"$(nproc)"'
@@ -101,7 +107,7 @@ jobs:
         # with "GLIBC_2.38 not found" against
         # ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 (glibc 2.31).
         run: |
-          podman run --rm --user 0:0 --entrypoint "" \
+          podman run --rm --pull=always --user 0:0 --entrypoint "" \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c '
