@@ -1,0 +1,139 @@
+name: OpenWrt release watch
+
+# Watches openwrt/openwrt's releases and, on a new one:
+#   1. records it (a small state file committed on this branch), so a
+#      re-run without a new release is a no-op
+#   2. attempts to merge the new release tag into each of the 3 device
+#      branches that carry real patches (whw03-mesh-packages, rbs40v,
+#      wattbox-lpc32xx-port) and opens a PR per branch that merges clean.
+#      A branch that conflicts gets a GitHub issue instead of a broken PR --
+#      merge commits with conflict markers checked in would silently break
+#      that branch's next CI build.
+#      MX60W is NOT in this list: it builds straight off openwrt/openwrt's
+#      own master (see build-mx60w.yml), so there's nothing to merge for it.
+#   3. publishes a retained MQTT message so Home Assistant can notify.
+#
+# Runs on the self-hosted asu-builder runner, not a GitHub-hosted one: the
+# MQTT broker (mqtt.wdwconsulting.net) is LAN-only, same as opensoho/asu's
+# own *.int.wdwconsulting.net hosts -- a GitHub-hosted runner has no path to
+# it at all. Safe to give this job contents:write/pull-requests:write on a
+# self-hosted runner because it's schedule/workflow_dispatch-only, same
+# safety boundary already used by every build-*.yml in this repo (never
+# pull_request/pull_request_target -- this job never executes anything from
+# an untrusted PR).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 7 * * *" # daily, 07:00 UTC (after the weekly device builds' 06:00 Monday slot)
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  DEVICE_BRANCHES: "whw03-mesh-packages rbs40v wattbox-lpc32xx-port"
+
+jobs:
+  watch:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Clone eljefe80/openwrt (full history, all branches)
+        run: |
+          rm -rf openwrt-src
+          git clone "https://x-access-token:${{ github.token }}@github.com/eljefe80/openwrt.git" openwrt-src
+          cd openwrt-src
+          git remote add openwrt-upstream https://github.com/openwrt/openwrt.git
+          git config user.name "eljefe80-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Check latest upstream release
+        id: check
+        working-directory: openwrt-src
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LATEST_TAG=$(gh api repos/openwrt/openwrt/releases/latest --jq .tag_name)
+          STATE_FILE=.github/release-watch-state.json
+          LAST_SEEN=""
+          if [ -f "$STATE_FILE" ]; then
+            LAST_SEEN=$(jq -r '.last_seen_tag // ""' "$STATE_FILE")
+          fi
+          echo "latest_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+          if [ "$LATEST_TAG" = "$LAST_SEEN" ]; then
+            echo "new_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record the new release
+        if: steps.check.outputs.new_release == 'true'
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.check.outputs.latest_tag }}"
+          git fetch openwrt-upstream "refs/tags/$TAG:refs/tags/$TAG"
+          mkdir -p .github
+          printf '{"last_seen_tag": "%s"}\n' "$TAG" > .github/release-watch-state.json
+          git add .github/release-watch-state.json
+          git commit -m "chore: record OpenWrt release $TAG"
+          git push origin master
+
+      - name: Open merge PRs against device branches
+        if: steps.check.outputs.new_release == 'true'
+        working-directory: openwrt-src
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.check.outputs.latest_tag }}"
+          for BRANCH in $DEVICE_BRANCHES; do
+            MERGE_BRANCH="merge-openwrt-${TAG}-into-${BRANCH}"
+            git checkout -B "$MERGE_BRANCH" "origin/$BRANCH"
+            if git merge --no-edit "$TAG"; then
+              git push origin "$MERGE_BRANCH" --force
+              gh pr create \
+                --repo eljefe80/openwrt \
+                --base "$BRANCH" \
+                --head "$MERGE_BRANCH" \
+                --title "Merge OpenWrt $TAG into $BRANCH" \
+                --body "Automated merge of upstream release $TAG into \`$BRANCH\`. Review before merging -- \`build-*.yml\` for this device will run once it lands." \
+                || echo "PR create skipped/failed for $BRANCH (may already be open)"
+              echo "- \`$BRANCH\`: PR opened" >> "$GITHUB_STEP_SUMMARY"
+            else
+              git merge --abort || true
+              gh issue create \
+                --repo eljefe80/openwrt \
+                --title "Manual merge needed: OpenWrt $TAG -> $BRANCH (conflicts)" \
+                --body "release-watch.yml tried to merge upstream release \`$TAG\` into \`$BRANCH\` and hit conflicts, so no PR was opened (a merge commit with conflict markers would break this branch's next build). Merge by hand:
+
+\`\`\`
+git fetch origin $BRANCH
+git fetch https://github.com/openwrt/openwrt.git $TAG
+git checkout -b merge-${TAG}-${BRANCH} origin/$BRANCH
+git merge $TAG
+# resolve conflicts, then:
+git push origin merge-${TAG}-${BRANCH}
+gh pr create --base $BRANCH --head merge-${TAG}-${BRANCH} --title \"Merge OpenWrt $TAG into $BRANCH\"
+\`\`\`" \
+                || echo "issue create skipped/failed for $BRANCH (may already exist)"
+              echo "- \`$BRANCH\`: CONFLICT, issue filed" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            git checkout master
+          done
+
+      - name: Notify via MQTT
+        if: steps.check.outputs.new_release == 'true'
+        env:
+          MQTT_USERNAME: ${{ secrets.MQTT_USERNAME }}
+          MQTT_PASSWORD: ${{ secrets.MQTT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          command -v mosquitto_pub >/dev/null || sudo apt-get update -qq && sudo apt-get install -y -qq mosquitto-clients
+          TAG="${{ steps.check.outputs.latest_tag }}"
+          mosquitto_pub -h mqtt.wdwconsulting.net -p 1883 \
+            -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
+            -t "openwrt/release/latest" -r -q 1 \
+            -m "{\"tag\": \"$TAG\", \"detected_at\": \"$(date -u +%FT%TZ)\"}"
