@@ -10,6 +10,26 @@ board_config_update
 board=$(board_name)
 
 case "$board" in
+checkpoint,l72w)
+	#
+	# 3 real, independent Ethernet MACs (no switch chip involved,
+	# each its own netdev with its own real hardware MAC) --
+	# eth0/eth1/eth2 here are the KERNEL's own PCI-probe-order names,
+	# confirmed live 2026-09-12: eth0=PCI 00:00.0 (DTS &eth0/port0),
+	# eth1=PCI 00:02.0 (DTS &eth2/port2), eth2=PCI 00:03.0 (DTS
+	# &eth3, the 4th MAC not in the upstream reference). These are
+	# NOT guaranteed stable if driver probe order ever changes --
+	# re-verify by MAC address (ip link) after any kernel/driver bump.
+	#
+	# Deliberately left unconfigured/unbridged (protocol "none" on
+	# each, since "lan"/"wan" naming is what triggers a default
+	# protocol) -- role assignment (LAN/WAN/VLANs) is left to UCI/LuCI
+	# per Jeff's own call, not a hardcoded board default.
+	#
+	ucidef_set_interface "port0" device "eth0" protocol "none"
+	ucidef_set_interface "port2" device "eth1" protocol "none"
+	ucidef_set_interface "port3" device "eth2" protocol "none"
+	;;
 mikrotik,rb1100ahx4)
 	#
 	# DSA switches:
