@@ -102,14 +102,31 @@ jobs:
           # only runs invoking --pull=always ever produced an incompatible one.
           # Plain `podman run image:tag` only pulls when nothing is cached, so
           # this stays deterministic without fighting GHCR's anonymous rate limit.
+          echo "::group::Forensics: host-side state before podman run"
+          id
+          podman --version
+          podman info --format '{{.Host.Security.Rootless}} {{.Store.GraphRoot}}' 2>&1
+          podman ps -a 2>&1
+          echo "::endgroup::"
           podman run --rm --user 0:0 --entrypoint "" \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
-            bash -c 'make download -j"$(nproc)" || {
-              echo "::group::Verbose re-run for diagnostics (make -j1 V=s download)"
-              make -j1 V=s download
-              exit 1
-            }'
+            bash -c '
+              echo "::group::Forensics: inside container before make"
+              id
+              ldd --version | head -1
+              readlink -f /usr/bin/cc
+              echo "::endgroup::"
+              make download -j"$(nproc)" || {
+                echo "::group::Forensics: state at failure"
+                readlink -f /workdir/staging_dir/host/bin/gcc 2>&1
+                stat /workdir/staging_dir/host/bin/mkhash 2>&1
+                objdump -T /workdir/staging_dir/host/bin/mkhash 2>&1 | grep GLIBC | sort -u -t_ -k2 -V | tail -5
+                echo "::endgroup::"
+                echo "::group::Verbose re-run for diagnostics (make -j1 V=s download)"
+                make -j1 V=s download
+                exit 1
+              }'
 
       - name: Build (make world)
         working-directory: openwrt-src
