@@ -161,11 +161,24 @@ jobs:
         # bare Ubuntu 26.04 (glibc 2.38+) failed a real ASU build request
         # with "GLIBC_2.38 not found" against
         # ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 (glibc 2.31).
+        #
+        # apt-get install device-tree-compiler: RBS40V's own
+        # scripts/mkits-rbs40v-fit.sh needs `dtc` (mkimage shells out to it
+        # for FIT images) -- this was already a known gotcha, previously
+        # fixed by installing it on guinevere's BARE HOST, but that doesn't
+        # carry over now that the build correctly runs inside this container
+        # instead. Confirmed via a real failure: "sh: 1: dtc: not found",
+        # which then made mkimage fall back to a different, also-broken
+        # codepath ("Can't open ...factory.chk.tmp") -- the real error is
+        # the missing dtc, not that second, misleading one. Root inside the
+        # container (--user 0:0) can apt-get install directly, unlike
+        # gha-runner on the bare host, which has no sudo at all.
         run: |
           podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c '
+              apt-get update -qq && apt-get install -y -qq device-tree-compiler
               make -j"$(nproc)" world || {
                 echo "::group::Verbose re-run for diagnostics (make -j1 V=s world)"
                 make -j1 V=s world
