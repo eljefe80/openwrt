@@ -1082,6 +1082,10 @@ define Device/netgear_rbs40v
 	# owut + luci-app-attendedsysupgrade baked in so every build already
 	# has them, matching WHW03's DEVICE_PACKAGES pattern (see this same
 	# file's Device/linksys_whw03v2 block).
+	# openwisp-config added 2026-09-13: CONFIG_PACKAGE_openwisp-config=y in
+	# the workflow's Seed target config only gets it compiled, it does NOT
+	# make it a DEVICE_PACKAGES default -- same exact gap class as
+	# WattBox's wbctl, found by checking all 4 devices after that fix.
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct ath10k-firmware-qca9887-ct \
 		ath10k-firmware-qca988x-ct kmod-usb-audio kmod-hid kmod-hid-generic \
 		kmod-input-evdev kmod-usb-hid kmod-bluetooth \
@@ -1093,7 +1097,7 @@ define Device/netgear_rbs40v
 		kmod-udptunnel4 kmod-udptunnel6 kmod-vxlan vxlan ip-full \
 		ip-bridge libbpf libelf libgpg-error libgcrypt libiwinfo dawn umdns \
 		mosquitto-client-nossl rbs40v-inittab led-ring-mqtt bccmd \
-		owut luci-app-attendedsysupgrade
+		owut luci-app-attendedsysupgrade openwisp-config
 	DEVICE_MODEL := RBS40V
 	DEVICE_VARIANT := v1 ap.dk07.1-c1
 	DEVICE_DTS_CONFIG := config@ap.dk07.1-c1
