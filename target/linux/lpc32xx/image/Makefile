@@ -47,6 +47,14 @@ define Device/snapav_wattbox-wb300vb
 	DEVICE_VENDOR := SnapAV
 	DEVICE_MODEL := WattBox WB-300VB-IP-5
 	DEVICE_DTS := lpc3250-wattbox-wb300vb
+	# owut only, not luci-app-attendedsysupgrade -- unlike WHW03, this
+	# device's own config deliberately strips dnsmasq/firewall4/nftables/
+	# ppp/odhcpd to save space (see Seed target config in
+	# build-wattbox.yml), so pulling in the full LuCI web framework just
+	# for a one-button UI would fight that intent. owut alone is a
+	# standalone ucode CLI with no LuCI/web dependency -- full self-update
+	# capability without the bloat.
+	DEVICE_PACKAGES := owut
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
