@@ -52,18 +52,6 @@ jobs:
         # Authenticated pulls get a much higher limit; reuses the same
         # GITHUB_TOKEN the later push step already relies on.
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Wipe stale host-tool build state
-        working-directory: openwrt-src
-        # actions/checkout's default clean does NOT reliably purge these on
-        # this self-hosted runner -- confirmed via a real failure: mkhash
-        # was still glibc-incompatible on a run where BOTH `download` and
-        # `world` were already containerized, meaning it wasn't rebuilt at
-        # all, just reused from an earlier run's staging_dir/build_dir that
-        # predates the container-wrap fix (built against guinevere's bare
-        # glibc). Force a clean slate every run so host tools always get
-        # (re)built inside the container, never carried over stale.
-        run: rm -rf staging_dir build_dir bin
-
       - name: Add openwisp-config feed
         working-directory: openwrt-src
         # For opensoho check-in. Real facts confirmed against the actual
@@ -92,18 +80,34 @@ jobs:
           EOF
           make defconfig
 
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # MUST run right here, after `Seed target config`, not earlier --
+        # this took a full day of chasing wrong theories (stale image cache,
+        # GHCR rate-limiting, a suspected parallel-build race) before real
+        # forensic evidence from an actual failed run proved it: mkhash's own
+        # birth timestamp fell BEFORE this step's container even started,
+        # meaning `make defconfig` in Seed target config -- which runs on the
+        # bare host, not containerized -- builds staging_dir/host/bin/mkhash
+        # itself for some device configs (confirmed: RBS40V hits this,
+        # WHW03's simpler config doesn't). Every manual reproduction attempt
+        # had accidentally wiped AFTER defconfig instead of before it, which
+        # is exactly why none of them ever reproduced the failure. Wiping
+        # here, immediately before the containerized Download sources step,
+        # actually protects against what defconfig just built on the bare
+        # host, instead of protecting against nothing.
+        run: rm -rf staging_dir build_dir bin
+
       - name: Download sources
         working-directory: openwrt-src
         # Also wrapped in the buildworker container: `download` depends on
         # tools/flock/compile (include/toplevel.mk) whenever
         # staging_dir/host/bin/flock doesn't exist yet, which pulls in the
-        # WHOLE host-tools chain (mkhash included). Running this step on the
-        # bare host built those tools against guinevere's glibc 2.38+ and
-        # "prepared"-stamped them -- the later containerized `make world`
-        # step then reused those stale binaries instead of rebuilding them,
-        # so wrapping only `make world` wasn't enough. Confirmed via a real
-        # failed run: mkhash failed with "GLIBC_2.33/2.34 not found" *inside*
-        # the container, meaning it was built outside it.
+        # WHOLE host-tools chain (mkhash included) -- keep this containerized
+        # regardless of the Wipe step above, since anything host-tool related
+        # needs to be built against the container's own glibc, never the bare
+        # host's (see the Wipe step's comment for the real, fully-diagnosed
+        # story of how host-tool builds were leaking in from the bare host).
         run: |
           # NOT --pull=always: chased that theory for hours (stale cache, then
           # GHCR rate-limiting, then a suspected parallel-build race) before
