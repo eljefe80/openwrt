@@ -42,8 +42,11 @@ define Device/meraki_mx60
   DEVICE_MODEL := MX60
   DEVICE_ALT0_VENDOR := Cisco Meraki
   DEVICE_ALT0_MODEL := MX60W
+  # owut + luci-app-attendedsysupgrade baked in so every build already has
+  # them, matching WHW03/RBS40V's DEVICE_PACKAGES pattern.
   DEVICE_PACKAGES := kmod-spi-gpio kmod-usb-ledtrig-usbport kmod-usb-dwc2 \
-		     kmod-usb-storage block-mount kmod-dsa-qca8k kmod-phy-qca83xx
+		     kmod-usb-storage block-mount kmod-dsa-qca8k kmod-phy-qca83xx \
+		     owut luci-app-attendedsysupgrade
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   SUBPAGESIZE := 512
