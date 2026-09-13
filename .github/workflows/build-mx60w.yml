@@ -112,7 +112,7 @@ jobs:
           # only runs invoking --pull=always ever produced an incompatible one.
           # Plain `podman run image:tag` only pulls when nothing is cached, so
           # this stays deterministic without fighting GHCR's anonymous rate limit.
-          podman run --rm --user 0:0 --entrypoint "" \
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c 'make download -j"$(nproc)" || {
@@ -129,7 +129,7 @@ jobs:
         # with "GLIBC_2.38 not found" against
         # ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 (glibc 2.31).
         run: |
-          podman run --rm --user 0:0 --entrypoint "" \
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
