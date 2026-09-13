@@ -101,7 +101,11 @@ jobs:
           podman run --rm --pull=always --user 0:0 --entrypoint "" \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
-            bash -c 'make download -j"$(nproc)"'
+            bash -c 'make download -j"$(nproc)" || {
+              echo "::group::Verbose re-run for diagnostics (make -j1 V=s download)"
+              make -j1 V=s download
+              exit 1
+            }'
 
       - name: Build (make world)
         working-directory: openwrt-src
