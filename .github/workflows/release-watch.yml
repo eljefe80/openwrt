@@ -61,7 +61,15 @@ jobs:
 
       - name: Clone eljefe80/openwrt (full history, all branches)
         run: |
-          rm -rf openwrt-src
+          # podman unshare, not plain rm -rf: this shared workspace can hold
+          # files a containerized build left owned by one of gha-runner's
+          # *subordinate* uids (rootless podman's wider uid/gid-map range),
+          # which gha-runner has no bare-host permission to remove directly
+          # -- confirmed via a real failure here, same root cause already
+          # fixed in all 4 build-*.yml workflows' own cleanup steps, just
+          # missed in this one. podman unshare runs inside the same user
+          # namespace, where the mapping resolves correctly.
+          podman unshare rm -rf openwrt-src
           git clone "https://x-access-token:${{ github.token }}@github.com/eljefe80/openwrt.git" openwrt-src
           cd openwrt-src
           git remote add openwrt-upstream https://github.com/openwrt/openwrt.git
