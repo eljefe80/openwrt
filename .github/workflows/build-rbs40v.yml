@@ -92,13 +92,17 @@ jobs:
         # world`'s later containerized run just reuses those stale,
         # glibc-incompatible binaries instead of rebuilding them.
         run: |
-          # --pull=always added after the wipe-workspace fix above STILL didn't
-          # fix this: proved locally that a genuinely fresh pull of this exact
-          # image builds a fully glibc-2.14-compatible mkhash, so the remaining
-          # explanation is guinevere's rootless podman using a STALE cached
-          # local copy of this tag from earlier smoke-testing, never the same
-          # bits ghcr.io serves now. Forces a fresh pull every run.
-          podman run --rm --pull=always --user 0:0 --entrypoint "" \
+          # NOT --pull=always: chased that theory for hours (stale cache, then
+          # GHCR rate-limiting, then a suspected parallel-build race) before
+          # directly proving on guinevere itself that the real issue was
+          # --pull=always's forced re-pull -- the cached image (22 months old,
+          # digest sha256:fceb...aea1528, byte-identical to a fresh pull done
+          # elsewhere the same day) reliably builds a correct glibc-2.14 mkhash
+          # under the exact same -j$(nproc) parallel load as this workflow;
+          # only runs invoking --pull=always ever produced an incompatible one.
+          # Plain `podman run image:tag` only pulls when nothing is cached, so
+          # this stays deterministic without fighting GHCR's anonymous rate limit.
+          podman run --rm --user 0:0 --entrypoint "" \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c 'make download -j"$(nproc)" || {
@@ -121,7 +125,7 @@ jobs:
         # with "GLIBC_2.38 not found" against
         # ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 (glibc 2.31).
         run: |
-          podman run --rm --pull=always --user 0:0 --entrypoint "" \
+          podman run --rm --user 0:0 --entrypoint "" \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c '
