@@ -63,7 +63,12 @@ define Device/snapav_wattbox-wb300vb
 	# silently omit the outlet/LED/metering control daemon unless someone
 	# explicitly requested it as an extra package. Matches RBS40V's
 	# led-ring-mqtt, which genuinely is a DEVICE_PACKAGES default already.
-	DEVICE_PACKAGES := owut wbctl
+	#
+	# openwisp-config added same day, same root cause: CONFIG_PACKAGE_
+	# openwisp-config=y in the Seed target config step only compiles it,
+	# doesn't default it either -- found by checking all 4 devices after
+	# the wbctl fix above.
+	DEVICE_PACKAGES := owut wbctl openwisp-config
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
