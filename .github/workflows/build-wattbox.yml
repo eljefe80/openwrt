@@ -42,6 +42,21 @@ jobs:
   build:
     runs-on: [self-hosted, asu-builder]
     steps:
+      - name: Force-clean the shared workspace before checkout
+        # All 4 device workflows share this exact physical checkout path
+        # (_work/<owner>/<repo>/openwrt-src, keyed by repo only, not by
+        # workflow or branch), so a mode/permission issue left behind by
+        # ANY previous run's containerized build can break checkout's own
+        # clean step here -- confirmed via a real failure: EACCES unlinking
+        # a file inside build_dir/host/tar-1.35 left over from a run that
+        # hit tools/tar's "run configure as root" refusal. chmod first
+        # (gha-runner IS the real owner via rootless podman's UID mapping,
+        # so it can always reclaim its own write permission) so this never
+        # depends on whatever state the previous run left the tree in.
+        run: |
+          chmod -R u+rwX openwrt-src 2>/dev/null || true
+          rm -rf openwrt-src
+
       - name: Checkout eljefe80/openwrt (wattbox-lpc32xx-port)
         uses: actions/checkout@v4
         with:
