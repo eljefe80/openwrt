@@ -54,7 +54,16 @@ define Device/snapav_wattbox-wb300vb
 	# for a one-button UI would fight that intent. owut alone is a
 	# standalone ucode CLI with no LuCI/web dependency -- full self-update
 	# capability without the bloat.
-	DEVICE_PACKAGES := owut
+	#
+	# wbctl added 2026-09-13: CONFIG_PACKAGE_wbctl=y in build-wattbox.yml's
+	# Seed target config only gets it compiled/published into the package
+	# feed, it does NOT make it a default for this profile -- confirmed by
+	# reading this file directly (it was missing entirely) before this fix.
+	# Without this, an ASU-requested WattBox image would build fine but
+	# silently omit the outlet/LED/metering control daemon unless someone
+	# explicitly requested it as an extra package. Matches RBS40V's
+	# led-ring-mqtt, which genuinely is a DEVICE_PACKAGES default already.
+	DEVICE_PACKAGES := owut wbctl
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
