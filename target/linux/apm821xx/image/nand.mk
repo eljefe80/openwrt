@@ -43,10 +43,13 @@ define Device/meraki_mx60
   DEVICE_ALT0_VENDOR := Cisco Meraki
   DEVICE_ALT0_MODEL := MX60W
   # owut + luci-app-attendedsysupgrade baked in so every build already has
-  # them, matching WHW03/RBS40V's DEVICE_PACKAGES pattern.
+  # them, matching WHW03/RBS40V's DEVICE_PACKAGES pattern. openwisp-config
+  # too (added 2026-09-13): CONFIG_PACKAGE_openwisp-config=y in the seed
+  # config only compiles it, doesn't default it -- same gap as WattBox's
+  # wbctl, found by checking all 4 devices after that fix.
   DEVICE_PACKAGES := kmod-spi-gpio kmod-usb-ledtrig-usbport kmod-usb-dwc2 \
 		     kmod-usb-storage block-mount kmod-dsa-qca8k kmod-phy-qca83xx \
-		     owut luci-app-attendedsysupgrade
+		     owut luci-app-attendedsysupgrade openwisp-config
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   SUBPAGESIZE := 512
