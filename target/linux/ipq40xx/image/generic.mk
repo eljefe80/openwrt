@@ -1079,6 +1079,9 @@ define Device/netgear_rbs40v
 	IMAGE/factory.chk := append-ubi | boot-script-rbs40v | netgear-chk
 	IMAGE/sysupgrade.bin/squashfs := append-rootfs | pad-to 64k | \
 		sysupgrade-tar kernel=$$$$(BIN_DIR)/$$(KERNEL_IMAGE) rootfs=$$$$@ | append-metadata
+	# owut + luci-app-attendedsysupgrade baked in so every build already
+	# has them, matching WHW03's DEVICE_PACKAGES pattern (see this same
+	# file's Device/linksys_whw03v2 block).
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct ath10k-firmware-qca9887-ct \
 		ath10k-firmware-qca988x-ct kmod-usb-audio kmod-hid kmod-hid-generic \
 		kmod-input-evdev kmod-usb-hid kmod-bluetooth \
@@ -1089,7 +1092,8 @@ define Device/netgear_rbs40v
 		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-iptunnel \
 		kmod-udptunnel4 kmod-udptunnel6 kmod-vxlan vxlan ip-full \
 		ip-bridge libbpf libelf libgpg-error libgcrypt libiwinfo dawn umdns \
-		mosquitto-client-nossl rbs40v-inittab led-ring-mqtt bccmd
+		mosquitto-client-nossl rbs40v-inittab led-ring-mqtt bccmd \
+		owut luci-app-attendedsysupgrade
 	DEVICE_MODEL := RBS40V
 	DEVICE_VARIANT := v1 ap.dk07.1-c1
 	DEVICE_DTS_CONFIG := config@ap.dk07.1-c1
