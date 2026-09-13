@@ -827,9 +827,18 @@ define Device/linksys_whw03v2
 	# per-build package list, moved into DEVICE_PACKAGES so every build already has them --
 	# this is the whole reason WHW03 now needs its own fork branch instead of building
 	# straight off upstream master).
+	#
+	# openwisp-config added 2026-09-13: CONFIG_PACKAGE_openwisp-config=y in
+	# every device workflow's Seed target config only gets it compiled, it
+	# does NOT make it a DEVICE_PACKAGES default -- same exact gap class as
+	# WattBox's wbctl, found by checking all 4 devices after that fix.
+	# Without this, a real ASU-requested build would silently omit the
+	# opensoho check-in agent unless explicitly requested as an extra
+	# package -- and the entire opensoho onboarding plan depends on it
+	# being there by default.
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct kmod-leds-pca963x kmod-spi-dev kmod-hci-uart \
 		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-vxlan ip-full ip-bridge \
-		dawn umdns owut luci-ssl luci-app-attendedsysupgrade
+		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config
 endef
 TARGET_DEVICES += linksys_whw03v2
 
