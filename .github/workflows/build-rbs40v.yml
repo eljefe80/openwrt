@@ -40,14 +40,18 @@ jobs:
         # workflow or branch), so a mode/permission issue left behind by
         # ANY previous run's containerized build can break checkout's own
         # clean step here -- confirmed via a real failure: EACCES unlinking
-        # a file inside build_dir/host/tar-1.35 left over from a run that
-        # hit tools/tar's "run configure as root" refusal. chmod first
-        # (gha-runner IS the real owner via rootless podman's UID mapping,
-        # so it can always reclaim its own write permission) so this never
-        # depends on whatever state the previous run left the tree in.
-        run: |
-          chmod -R u+rwX openwrt-src 2>/dev/null || true
-          rm -rf openwrt-src
+        # a file inside build_dir/host/tar-1.35, and a plain `chmod -R
+        # u+rwX; rm -rf` did NOT fix it either (also EACCES) -- checked
+        # ownership directly on guinevere and these files are owned by a
+        # HOST UID (232071) that isn't gha-runner (1002) at all: something
+        # inside the container build drops to a different internal UID for
+        # at least part of the process despite --entrypoint "", and that
+        # UID maps to one of gha-runner's *subordinate* ids (rootless
+        # podman's wider uid/gid-map range), which gha-runner has no bare
+        # host permission over. `podman unshare` runs inside that same user
+        # namespace, where the mapping resolves correctly -- confirmed
+        # directly on guinevere before applying here.
+        run: podman unshare rm -rf openwrt-src
 
       - name: Checkout eljefe80/openwrt (rbs40v)
         uses: actions/checkout@v4
@@ -98,7 +102,7 @@ jobs:
         # build-whw03.yml for the full, hard-won story: `make defconfig`
         # (bare host) itself builds staging_dir/host/bin/mkhash for this
         # device's config, so wiping any earlier doesn't protect anything.
-        run: rm -rf staging_dir build_dir bin
+        run: podman unshare rm -rf staging_dir build_dir bin
 
       - name: Download sources
         working-directory: openwrt-src
