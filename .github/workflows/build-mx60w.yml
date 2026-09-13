@@ -53,13 +53,6 @@ jobs:
         # Authenticated pulls get a much higher limit; reuses the same
         # GITHUB_TOKEN the later push step already relies on.
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Wipe stale host-tool build state
-        working-directory: openwrt-src
-        # actions/checkout's default clean does NOT reliably purge these on
-        # this self-hosted runner -- see build-whw03.yml for the full
-        # explanation. Force a clean slate every run.
-        run: rm -rf staging_dir build_dir bin
-
       - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
         run: |
           # rm -rf first: this plain shell clone (unlike the actions/checkout
@@ -92,6 +85,14 @@ jobs:
           CONFIG_PACKAGE_openwisp-config=y
           EOF
           make defconfig
+
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # MUST run right here, after Seed target config, not earlier -- see
+        # build-whw03.yml for the full, hard-won story: `make defconfig`
+        # (bare host) itself builds staging_dir/host/bin/mkhash for this
+        # device's config, so wiping any earlier doesn't protect anything.
+        run: rm -rf staging_dir build_dir bin
 
       - name: Download sources
         working-directory: openwrt-src
