@@ -1,0 +1,12 @@
+#!/bin/sh
+# Point owut/auc at our self-hosted ASU instance by default instead of
+# sysupgrade.openwrt.org -- confirmed against owut's actual source
+# (uci.get_first("attendedsysupgrade", "server", "url")), not guessed.
+# Runs once on first boot, then is removed.
+uci -q batch <<-EOF
+	set attendedsysupgrade.server=server
+	set attendedsysupgrade.server.url='http://asu.int.wdwconsulting.net'
+	commit attendedsysupgrade
+EOF
+
+exit 0
