@@ -119,7 +119,7 @@ jobs:
           # only runs invoking --pull=always ever produced an incompatible one.
           # Plain `podman run image:tag` only pulls when nothing is cached, so
           # this stays deterministic without fighting GHCR's anonymous rate limit.
-          podman run --rm --user 0:0 --entrypoint "" \
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c 'make download -j"$(nproc)" || {
@@ -142,7 +142,11 @@ jobs:
         # /entry.sh silently drops back to the "buildbot" UID regardless of
         # --user, confirmed directly on the runner before touching this file.
         run: |
-          podman run --rm --user 0:0 --entrypoint "" \
+          # -e FORCE_UNSAFE_CONFIGURE=1: tools/tar's own configure script
+          # refuses to run as root otherwise ("you should not run configure
+          # as root") -- confirmed via a real failed run, --user 0:0 above
+          # is exactly root inside the container.
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
