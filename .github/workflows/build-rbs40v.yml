@@ -220,7 +220,7 @@ jobs:
         run: |
           podman build \
             --build-arg TARGET=ipq40xx/generic \
-            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg FILE_HOST=http://host.containers.internal \
             --build-arg VERSION_PATH=rbs40v \
             --build-arg RUN_SETUP=1 \
             -t ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-openwrt-RBS40V \
