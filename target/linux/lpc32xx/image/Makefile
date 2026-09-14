@@ -74,7 +74,7 @@ define Device/snapav_wattbox-wb300vb
 	# managed devices at once. Doesn't need firewall4/nftables (already
 	# stripped on this device, see comment above) -- lldpd works off raw
 	# interface sockets, no dependency on either.
-	DEVICE_PACKAGES := owut wbctl openwisp-config lldpd
+	DEVICE_PACKAGES := owut wbctl openwisp-config openwisp-monitoring lldpd
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
