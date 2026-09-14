@@ -804,8 +804,15 @@ define Device/linksys_whw03
 	IMAGE_SIZE := 131072k
 	IMAGES += factory.bin
 	IMAGE/factory.bin  := append-kernel | pad-to $$$$(KERNEL_SIZE) | append-rootfs | pad-rootfs | linksys-image type=WHW03
+	# Brought into this fork's build 2026-09-14 -- a real, physically-attached
+	# mesh node (mesh-leaf-01) turned out to be this original (non-V2) board,
+	# not another V2 unit. Mirrors linksys_whw03v2's own additions below
+	# exactly (mesh packages, opensoho/ASU agents, lldpd), since this unit
+	# runs the same 802.11s/batman mesh role.
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct kmod-leds-pca963x kmod-spi-dev kmod-hci-uart \
-		kmod-fs-ext4 e2fsprogs kmod-fs-f2fs mkf2fs losetup ipq-wifi-linksys_whw03
+		kmod-fs-ext4 e2fsprogs kmod-fs-f2fs mkf2fs losetup ipq-wifi-linksys_whw03 \
+		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-vxlan ip-full ip-bridge \
+		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config lldpd
 endef
 TARGET_DEVICES += linksys_whw03
 
@@ -836,9 +843,12 @@ define Device/linksys_whw03v2
 	# opensoho check-in agent unless explicitly requested as an extra
 	# package -- and the entire opensoho onboarding plan depends on it
 	# being there by default.
+	# lldpd added 2026-09-14: opensoho's device page reported "No LLDP data,
+	# verify whether lldpd is installed" -- same package-gap class as
+	# wbctl/openwisp-config, added to all managed devices at once.
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct kmod-leds-pca963x kmod-spi-dev kmod-hci-uart \
 		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-vxlan ip-full ip-bridge \
-		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config
+		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config lldpd
 endef
 TARGET_DEVICES += linksys_whw03v2
 
