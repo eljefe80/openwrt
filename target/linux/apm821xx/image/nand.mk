@@ -47,9 +47,11 @@ define Device/meraki_mx60
   # too (added 2026-09-13): CONFIG_PACKAGE_openwisp-config=y in the seed
   # config only compiles it, doesn't default it -- same gap as WattBox's
   # wbctl, found by checking all 4 devices after that fix.
+  # lldpd added 2026-09-14: opensoho reported "No LLDP data, verify whether
+  # lldpd is installed" -- same gap class, added to all 4 managed devices.
   DEVICE_PACKAGES := kmod-spi-gpio kmod-usb-ledtrig-usbport kmod-usb-dwc2 \
 		     kmod-usb-storage block-mount kmod-dsa-qca8k kmod-phy-qca83xx \
-		     owut luci-app-attendedsysupgrade openwisp-config
+		     owut luci-app-attendedsysupgrade openwisp-config lldpd
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   SUBPAGESIZE := 512
