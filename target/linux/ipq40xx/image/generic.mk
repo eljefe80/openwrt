@@ -1097,7 +1097,7 @@ define Device/netgear_rbs40v
 		kmod-udptunnel4 kmod-udptunnel6 kmod-vxlan vxlan ip-full \
 		ip-bridge libbpf libelf libgpg-error libgcrypt libiwinfo dawn umdns \
 		mosquitto-client-nossl rbs40v-inittab led-ring-mqtt bccmd \
-		owut luci-app-attendedsysupgrade openwisp-config
+		owut luci-app-attendedsysupgrade openwisp-config lldpd
 	DEVICE_MODEL := RBS40V
 	DEVICE_VARIANT := v1 ap.dk07.1-c1
 	DEVICE_DTS_CONFIG := config@ap.dk07.1-c1
