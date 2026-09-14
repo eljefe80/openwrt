@@ -68,7 +68,13 @@ define Device/snapav_wattbox-wb300vb
 	# openwisp-config=y in the Seed target config step only compiles it,
 	# doesn't default it either -- found by checking all 4 devices after
 	# the wbctl fix above.
-	DEVICE_PACKAGES := owut wbctl openwisp-config
+	#
+	# lldpd added 2026-09-14: opensoho reported "No LLDP data, verify
+	# whether lldpd is installed" -- same gap class, added to all 4
+	# managed devices at once. Doesn't need firewall4/nftables (already
+	# stripped on this device, see comment above) -- lldpd works off raw
+	# interface sockets, no dependency on either.
+	DEVICE_PACKAGES := owut wbctl openwisp-config lldpd
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
