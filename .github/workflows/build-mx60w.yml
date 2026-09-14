@@ -81,7 +81,7 @@ jobs:
         # opensoho-asu-stack/CI.md for why (public repo, can't hold a secret).
         run: |
           echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
-          echo "src-git openwisp-monitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
+          echo "src-git openwispmonitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
 
       - name: Update and install feeds
         working-directory: openwrt-src
