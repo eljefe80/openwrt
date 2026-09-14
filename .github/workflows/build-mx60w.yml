@@ -188,7 +188,7 @@ jobs:
         run: |
           podman build \
             --build-arg TARGET=apm821xx/nand \
-            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg FILE_HOST=http://host.containers.internal \
             --build-arg VERSION_PATH=snapshots \
             --build-arg RUN_SETUP=1 \
             -t ghcr.io/eljefe80/imagebuilder:apm821xx-nand-master \
