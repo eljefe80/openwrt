@@ -77,7 +77,7 @@ jobs:
         working-directory: openwrt-src
         run: |
           echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
-          echo "src-git openwisp-monitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
+          echo "src-git openwispmonitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
 
       - name: Update and install feeds
         working-directory: openwrt-src
