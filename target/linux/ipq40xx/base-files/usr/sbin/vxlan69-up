@@ -1,0 +1,35 @@
+#!/bin/sh
+# Multicast VXLAN tunnel over the wdw-backhaul 802.11s mesh (mesh0/meshul),
+# carrying tagged VLANs (802.1Q) across the mesh -- 802.11s/batman-adv strip
+# VLAN tags on raw mesh frames, VXLAN (L2-over-UDP) carries them transparently.
+#
+# Baked as a base-file (not a first-boot uci-defaults artifact) specifically
+# because it must survive a config-preserving `sysupgrade`: this is a plain
+# /usr/sbin script + hotplug hook, neither lives under /etc/config, so
+# neither is in sysupgrade's default backup set. A real outage on 2026-09-14
+# (mesh-hub-0 upgraded via ASU, both mesh leaves went unreachable from every
+# other VLAN for ~8h) was root-caused to exactly this: the script only
+# existed as a runtime artifact from an earlier manual setup, sysupgrade
+# didn't know to preserve it, so mesh0 coming up on reboot never recreated
+# the tunnel. Baking it into the image means it's part of the read-only
+# squashfs layer -- it can't be dropped by any future upgrade, config-
+# preserving or not.
+#
+# Deliberately NOT expressible via netifd's own `proto vxlan` (checked
+# against the real, current package/network/config/vxlan/files/vxlan.sh):
+# that proto is unicast-only (ipaddr/peeraddr + static bridge-fdb peers),
+# no multicast `group` option exists in its schema. A multicast L2 tunnel
+# -- needed so new mesh nodes join without maintaining a peer list -- has
+# to be hand-built with `ip link add ... type vxlan ... group`.
+ip link show vxlan69 >/dev/null 2>&1 || \
+	ip link add vxlan69 type vxlan id 69 group 239.69.0.69 dev mesh0 dstport 4789 ttl 1
+# VXLAN overhead is 50 bytes; mesh0 must run at 1600 so vxlan69 can run at
+# the client-facing 1500 without truncating full-size frames crossing the
+# mesh (silent MTU black hole otherwise -- small packets/pings work, large
+# transfers/TLS hang).
+ip link set mesh0 mtu 1600
+ip link set vxlan69 mtu 1500
+ip link set vxlan69 master br-trunk 2>/dev/null
+ip link set vxlan69 up
+bridge vlan del dev vxlan69 vid 1 2>/dev/null
+for v in 1 18 254; do bridge vlan add dev vxlan69 vid $v; done

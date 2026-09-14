@@ -1,0 +1,6 @@
+#!/bin/sh
+# Re-creates/re-joins the vxlan69 mesh tunnel every time the mesh underlay
+# interface comes up (boot, mesh reassociation, wifi reload) -- see
+# /usr/sbin/vxlan69-up for the full rationale. Devices without a 'meshul'
+# network interface configured never trigger this; harmless no-op there.
+[ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "meshul" ] && /usr/sbin/vxlan69-up
