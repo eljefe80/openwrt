@@ -95,11 +95,28 @@ jobs:
           cat >> .config <<'EOF'
           CONFIG_TARGET_ipq40xx=y
           CONFIG_TARGET_ipq40xx_generic=y
-          CONFIG_TARGET_ipq40xx_generic_DEVICE_linksys_whw03v2=y
-          CONFIG_TARGET_ipq40xx_generic_DEVICE_linksys_whw03=y
           CONFIG_IB=y
           CONFIG_PACKAGE_openwisp-config=y
           CONFIG_PACKAGE_openwisp-monitoring=y
+          EOF
+          # Two devices (linksys_whw03v2 + linksys_whw03) means the plain
+          # single-choice symbol (CONFIG_TARGET_ipq40xx_generic_DEVICE_x=y)
+          # can't be used for both -- confirmed the hard way: a real build
+          # succeeded, but profiles.json only had linksys_whw03, because
+          # that symbol is a Kconfig `choice` (mutually exclusive), and the
+          # second .config line silently overrode the first ("warning:
+          # override: ... changes choice state"). The real multi-device
+          # mechanism, from scripts/target-metadata.pl: CONFIG_TARGET_
+          # MULTI_PROFILE=y switches the whole target to a separate,
+          # non-choice "Target Devices" menu, where each device's symbol
+          # gains an extra "DEVICE_" (CONFIG_TARGET_DEVICE_<target>_<sub
+          # target>_DEVICE_<name>=y, not the single-choice CONFIG_TARGET_
+          # <target>_<subtarget>_DEVICE_<name>=y) -- those ARE independent
+          # booleans and coexist fine.
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_MULTI_PROFILE=y
+          CONFIG_TARGET_DEVICE_ipq40xx_generic_DEVICE_linksys_whw03v2=y
+          CONFIG_TARGET_DEVICE_ipq40xx_generic_DEVICE_linksys_whw03=y
           EOF
           make defconfig
 
