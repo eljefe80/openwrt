@@ -28,6 +28,17 @@ ENV TARGET=$TARGET
 ENV FILE_HOST=$FILE_HOST
 ENV VERSION_PATH=$VERSION_PATH
 
+# dtc (device-tree-compiler) is NOT present in the base buildworker image --
+# confirmed the hard way via a real ASU build-request failure against this
+# exact image (ghcr.io/eljefe80/imagebuilder): "sh: 1: dtc: not found" inside
+# mkimage's FIT-image codepath, which then fails a second, more misleading
+# way ("Can't open ...factory.chk.tmp"). The CI workflows (build-*.yml)
+# already apt-get install this into the SEPARATE buildworker container they
+# use for `make world`, but that fix never reaches this image, since this
+# Containerfile builds a different container from the same base. Must run
+# as root, before the USER switch below drops to buildbot (no sudo there).
+RUN apt-get update -qq && apt-get install -y -qq device-tree-compiler && rm -rf /var/lib/apt/lists/*
+
 USER $USER
 WORKDIR $WORKDIR
 
