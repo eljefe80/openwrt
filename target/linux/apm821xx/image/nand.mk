@@ -51,7 +51,7 @@ define Device/meraki_mx60
   # lldpd is installed" -- same gap class, added to all 4 managed devices.
   DEVICE_PACKAGES := kmod-spi-gpio kmod-usb-ledtrig-usbport kmod-usb-dwc2 \
 		     kmod-usb-storage block-mount kmod-dsa-qca8k kmod-phy-qca83xx \
-		     owut luci-app-attendedsysupgrade openwisp-config lldpd
+		     owut luci-app-attendedsysupgrade openwisp-config openwisp-monitoring lldpd
   BLOCKSIZE := 128k
   PAGESIZE := 2048
   SUBPAGESIZE := 512

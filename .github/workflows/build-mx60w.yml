@@ -79,7 +79,9 @@ jobs:
         # (defaults to its own master). The actual server URL + shared secret
         # are NOT baked in here -- see this repo's own commit message and
         # opensoho-asu-stack/CI.md for why (public repo, can't hold a secret).
-        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+        run: |
+          echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+          echo "src-git openwisp-monitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
 
       - name: Update and install feeds
         working-directory: openwrt-src
@@ -96,6 +98,7 @@ jobs:
           CONFIG_TARGET_apm821xx_nand_DEVICE_meraki_mx60=y
           CONFIG_IB=y
           CONFIG_PACKAGE_openwisp-config=y
+          CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
           make defconfig
 
