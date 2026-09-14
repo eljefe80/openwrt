@@ -75,7 +75,9 @@ jobs:
 
       - name: Add openwisp-config feed
         working-directory: openwrt-src
-        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+        run: |
+          echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+          echo "src-git openwisp-monitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
 
       - name: Update and install feeds
         working-directory: openwrt-src
@@ -93,6 +95,7 @@ jobs:
           CONFIG_IB=y
           CONFIG_PACKAGE_led-ring-mqtt=y
           CONFIG_PACKAGE_openwisp-config=y
+          CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
           make defconfig
 
