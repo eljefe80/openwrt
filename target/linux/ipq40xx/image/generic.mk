@@ -812,7 +812,7 @@ define Device/linksys_whw03
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct kmod-leds-pca963x kmod-spi-dev kmod-hci-uart \
 		kmod-fs-ext4 e2fsprogs kmod-fs-f2fs mkf2fs losetup ipq-wifi-linksys_whw03 \
 		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-vxlan ip-full ip-bridge \
-		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config lldpd
+		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config openwisp-monitoring lldpd
 endef
 TARGET_DEVICES += linksys_whw03
 
@@ -848,7 +848,7 @@ define Device/linksys_whw03v2
 	# wbctl/openwisp-config, added to all managed devices at once.
 	DEVICE_PACKAGES := ath10k-firmware-qca9888-ct kmod-leds-pca963x kmod-spi-dev kmod-hci-uart \
 		-wpad-basic-mbedtls wpad-mesh-mbedtls kmod-vxlan ip-full ip-bridge \
-		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config lldpd
+		dawn umdns owut luci-ssl luci-app-attendedsysupgrade openwisp-config openwisp-monitoring lldpd
 endef
 TARGET_DEVICES += linksys_whw03v2
 
