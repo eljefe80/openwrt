@@ -97,7 +97,17 @@ define Device/snapav_wattbox-wb300vb
 	# managed devices at once. Doesn't need firewall4/nftables (already
 	# stripped on this device, see comment above) -- lldpd works off raw
 	# interface sockets, no dependency on either.
-	DEVICE_PACKAGES := owut wbctl openwisp-config openwisp-monitoring lldpd
+	#
+	# wb-picwdt added 2026-09-15: this device has an external PIC watchdog
+	# (see package/wb-picwdt) that resets the board ~30s after boot unless
+	# fed -- discovered the hard way when a real unit's rootfs got
+	# corrupted (unrelated incident, since fixed) and recovery required
+	# booting a scratch initramfs kernel, which showed the REAL shipped
+	# firmware had never included a watchdog feeder at all and was always
+	# going to reset in a loop the moment boot got far enough to matter.
+	# Without this, the device cannot stay up past the failsafe-mode
+	# window on any boot, corrupted rootfs or not.
+	DEVICE_PACKAGES := owut wbctl openwisp-config openwisp-monitoring lldpd wb-picwdt
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 

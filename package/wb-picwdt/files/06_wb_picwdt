@@ -1,0 +1,17 @@
+# Copyright (C) 2026 OpenWrt.org
+#
+# Feed the WattBox external PIC watchdog as early in boot as possible.
+# MUST run before 30_failsafe_wait (hence the "06" slot, well ahead of the
+# "10_indicate"/"30_failsafe_wait" pair) -- the failsafe keypress wait
+# alone burns several seconds, and the PIC resets the board ~30s after its
+# last feed. Running this hook after the failsafe wait (as an earlier,
+# differently-numbered attempt did) leaves too little margin and the
+# board resets before ever reaching a shell.
+
+wb_picwdt_start() {
+	[ -f /tmp/wb-picwdt.started ] && return 0
+	touch /tmp/wb-picwdt.started
+	/usr/sbin/wb-picwdt &
+}
+
+boot_hook_add preinit_main wb_picwdt_start
