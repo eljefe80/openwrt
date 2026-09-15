@@ -22,6 +22,29 @@ define Build/uimage-none
 	$(call Build/uImage,none)
 endef
 
+# mtd1 (kernel, 0x300000) and mtd2 (rootfs, 0x1b0000) are separate, fixed-size
+# NOR partitions -- confirmed by reading the device's own MTD partition table
+# over serial. platform_do_upgrade() splits sysupgrade.bin at the squashfs
+# magic and writes each half to its own mtd, so a combined check-size on the
+# concatenated image can't tell which half overflowed: the kernel here only
+# uses ~2.2MB of its 3MB budget, and that unused slack would silently absorb
+# part of a rootfs overage in any single combined-size check. check-size
+# below is scoped to $(IMAGE_ROOTFS) alone -- the real squashfs data, before
+# concatenation -- so it fails loudly on the exact failure mode hit on real
+# hardware 2026-09-14: a rootfs build 488KB over mtd2's actual capacity that
+# `mtd write` only caught mid-flash, as "Failed to erase block".
+KERNEL_SIZE := 3145728
+ROOTFS_SIZE := 1769472
+
+define Build/check-wattbox-rootfs-size
+	@actual="$$(stat -c%s $(IMAGE_ROOTFS))"; \
+	limit=$(ROOTFS_SIZE); \
+	[ "$$actual" -le "$$limit" ] || { \
+		$(call ERROR_MESSAGE,    WARNING: WattBox rootfs is too big: $$actual > $$limit \(mtd2 capacity\)); \
+		rm -f $@; \
+	}
+endef
+
 define Device/Default
 	PROFILES := Default
 	DEVICE_DTS_DIR := $(DTS_DIR)/nxp/lpc
@@ -31,7 +54,7 @@ define Device/Default
 	FILESYSTEMS := squashfs
 	BLOCKSIZE := 128k
 	IMAGES := sysupgrade.bin
-	IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | pad-rootfs | append-metadata
+	IMAGE/sysupgrade.bin := check-wattbox-rootfs-size | append-kernel | pad-to 128k | append-rootfs | pad-rootfs | append-metadata
 endef
 
 # The one real device this target was built from. Everything past the
