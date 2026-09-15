@@ -92,11 +92,13 @@ define Device/snapav_wattbox-wb300vb
 	# doesn't default it either -- found by checking all 4 devices after
 	# the wbctl fix above.
 	#
-	# lldpd added 2026-09-14: opensoho reported "No LLDP data, verify
-	# whether lldpd is installed" -- same gap class, added to all 4
-	# managed devices at once. Doesn't need firewall4/nftables (already
-	# stripped on this device, see comment above) -- lldpd works off raw
-	# interface sockets, no dependency on either.
+	# lldpd added 2026-09-14 (opensoho reported "No LLDP data, verify
+	# whether lldpd is installed", same gap class added to all 4 managed
+	# devices at once), DROPPED again 2026-09-15: this device's real
+	# rootfs budget is 1,769,472 bytes and every byte matters more than
+	# LLDP visibility does here -- see the openwisp-config/monitoring
+	# size investigation below, still short even with this and owut/
+	# attendedsysupgrade-common also out.
 	#
 	# wb-picwdt added 2026-09-15: this device has an external PIC watchdog
 	# (see package/wb-picwdt) that resets the board ~30s after boot unless
@@ -107,7 +109,7 @@ define Device/snapav_wattbox-wb300vb
 	# going to reset in a loop the moment boot got far enough to matter.
 	# Without this, the device cannot stay up past the failsafe-mode
 	# window on any boot, corrupted rootfs or not.
-	DEVICE_PACKAGES := owut wbctl openwisp-config openwisp-monitoring lldpd wb-picwdt
+	DEVICE_PACKAGES := owut wbctl openwisp-config openwisp-monitoring wb-picwdt
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
