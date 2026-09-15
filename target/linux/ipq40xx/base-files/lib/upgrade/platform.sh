@@ -125,6 +125,7 @@ platform_do_upgrade() {
 	netgear,lbr20|\
 	netgear,rbr20|\
 	netgear,rbs20|\
+	netgear,rbs40v|\
 	netgear,wac510|\
 	p2w,r619ac-64m|\
 	p2w,r619ac-128m|\
@@ -222,7 +223,6 @@ platform_do_upgrade() {
 		;;
 	netgear,rbr40|\
 	netgear,rbs40|\
-	netgear,rbs40v|\
 	netgear,rbr50|\
 	netgear,rbs50|\
 	netgear,srr60|\

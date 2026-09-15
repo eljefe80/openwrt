@@ -1077,8 +1077,29 @@ define Device/netgear_rbs40v
 		append-uImage-fakehdr filesystem | pad-to $$$$(KERNEL_SIZE) | \
 		append-rootfs | pad-rootfs | netgear-dni
 	IMAGE/factory.chk := append-ubi | boot-script-rbs40v | netgear-chk
-	IMAGE/sysupgrade.bin/squashfs := append-rootfs | pad-to 64k | \
-		sysupgrade-tar kernel=$$$$(BIN_DIR)/$$(KERNEL_IMAGE) rootfs=$$$$@ | append-metadata
+	# Real, source-verified root cause of a sysupgrade failure (2026-09-15):
+	# this custom IMAGE/sysupgrade.bin/squashfs override -- restructuring the
+	# tar into separate kernel=/rootfs= members -- was built to match
+	# platform_do_upgrade_netgear_orbi_upgrade()'s expected layout (netgear.sh's
+	# eMMC/find_mmc_part-based flash function). But this board is NAND+UBI
+	# (KERNEL_IN_UBI above, UbiFit macro, append-ubi factory.chk) -- the
+	# ORIGINAL upstream commit that added this device (2023-11-09, "ipq4019:
+	# add rbs40v") grouped it into platform.sh's eMMC netgear-orbi case
+	# alongside genuinely-eMMC siblings (rbr40/rbs40/rbr50/rbs50/srr60/srs60)
+	# and customized this recipe to match, even though every other build
+	# directive on this device (DniImage+UbiFit, append-ubi, netgear-chk) is
+	# unambiguously NAND. Real sysupgrade attempts against this board
+	# reproducibly failed instantly with "kernel partition not found!
+	# Rebooting..." from netgear_orbi_do_flash's find_mmc_part lookup --
+	# there is no MMC kernel partition on a NAND device. Confirmed the
+	# correct pattern against RBR20/RBS20/LBR20 (netgear_rbx20 device family,
+	# same NAND/UBI storage, already correctly routed to nand_do_upgrade in
+	# platform.sh): they don't override this recipe at all, they inherit
+	# UbiFit's own default (sysupgrade-tar | append-metadata, no kernel=/
+	# rootfs= split) -- nand_do_upgrade's generic UBI-volume logic expects
+	# exactly that single-member tar. Removing the override here restores
+	# it, and platform.sh now routes this board's compatible string to
+	# nand_do_upgrade instead of the eMMC function (same commit).
 	# owut + luci-app-attendedsysupgrade baked in so every build already
 	# has them, matching WHW03's DEVICE_PACKAGES pattern (see this same
 	# file's Device/linksys_whw03v2 block).
