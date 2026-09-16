@@ -98,12 +98,6 @@ jobs:
       - name: Clone wbctl package
         run: git clone --depth 1 https://github.com/eljefe80/wbctl.git openwrt-src/package/wbctl
 
-      - name: Add openwisp-config feed
-        working-directory: openwrt-src
-        run: |
-          echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
-          echo "src-git openwispmonitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
-
       - name: Update and install feeds
         working-directory: openwrt-src
         run: |
@@ -119,16 +113,14 @@ jobs:
           CONFIG_TARGET_lpc32xx_generic_DEVICE_snapav_wattbox-wb300vb=y
           CONFIG_IB=y
           CONFIG_PACKAGE_wbctl=y
-          CONFIG_PACKAGE_openwisp-config=y
-          CONFIG_PACKAGE_openwisp-monitoring=y
           CONFIG_TARGET_ROOTFS_INITRAMFS=y
-          # wb-picwdt mmaps GPIO registers via /dev/mem -- target/linux/generic's
-          # own config-6.18 has "# CONFIG_DEVMEM is not set" and a plain target-level
-          # override doesn't take (known gap, see gotcha_wattbox_devmem memory);
-          # CONFIG_KERNEL_DEVMEM=y at this top-level .config is the confirmed fix.
-          # Without this, wb-picwdt fails immediately ("FATAL open /dev/mem failed:
-          # No such file or directory") and the PIC watchdog resets ~20s into boot
-          # exactly like the original bug this package exists to fix.
+          # wb-picwdt mmaps GPIO registers via /dev/mem. The real fix for
+          # this device turned out to be creating the node directly in
+          # wb-picwdt's own preinit hook (CONFIG_DEVTMPFS is off and this
+          # hook runs before mdev's coldplug scan ever would -- see
+          # package/wb-picwdt/files/06_wb_picwdt), not a kconfig merge gap
+          # as first suspected. Kept anyway: harmless, and matches a
+          # separately-documented fix for the same symbol elsewhere.
           CONFIG_KERNEL_DEVMEM=y
           # CONFIG_PACKAGE_dnsmasq is not set
           # CONFIG_PACKAGE_firewall4 is not set

@@ -40,8 +40,9 @@ define Build/check-wattbox-rootfs-size
 	@actual="$$(stat -c%s $(IMAGE_ROOTFS))"; \
 	limit=$(ROOTFS_SIZE); \
 	[ "$$actual" -le "$$limit" ] || { \
-		$(call ERROR_MESSAGE,    WARNING: WattBox rootfs is too big: $$actual > $$limit \(mtd2 capacity\)); \
+		$(call ERROR_MESSAGE,    ERROR: WattBox rootfs is too big: $$actual > $$limit \(mtd2 capacity\)); \
 		rm -f $@; \
+		exit 1; \
 	}
 endef
 
@@ -109,7 +110,16 @@ define Device/snapav_wattbox-wb300vb
 	# going to reset in a loop the moment boot got far enough to matter.
 	# Without this, the device cannot stay up past the failsafe-mode
 	# window on any boot, corrupted rootfs or not.
-	DEVICE_PACKAGES := owut wbctl openwisp-config openwisp-monitoring wb-picwdt
+	#
+	# openwisp-config/openwisp-monitoring DROPPED again 2026-09-16: live
+	# rootfs measured 2,083,352 bytes with them in -- 313,880 bytes over
+	# the 1,769,472 mtd2 budget, confirming (a second time, now on a real
+	# build) the 2026-09-15 size investigation's conclusion. They do not
+	# fit on this device at all, full stop -- not a config or trimming
+	# problem, an actual capacity shortfall. Re-add only alongside a real
+	# repartition or a smaller alternative to openwisp-config's own chain
+	# (curl+lua+libuci-lua+luafilesystem+luci-lib-nixio+ca-certificates).
+	DEVICE_PACKAGES := owut wbctl wb-picwdt
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
