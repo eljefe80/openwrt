@@ -175,6 +175,22 @@ jobs:
           cp -rv bin/targets/lpc32xx/generic/packages "$OUT"/
           cp -v bin/targets/lpc32xx/generic/profiles.json "$OUT"/
 
+          # Recovery/bring-up tool, not a device deployment artifact -- ASU's
+          # ImageBuilder only repackages pre-built packages, it can't produce
+          # this (needs a real kernel build). Published here so it's fetchable
+          # the same way as everything else, not through the ASU build API.
+          # MUST run before the `cd "$OUT"` below -- this path is relative to
+          # openwrt-src (this step's working-directory). A prior version of
+          # this line was placed AFTER the cd by mistake, so it was silently
+          # looking for bin/targets/lpc32xx/generic/... underneath $OUT
+          # instead of openwrt-src -- never found anything, two CI cycles
+          # burned chasing a phantom OpenWrt build-system bug that never
+          # existed. Confirmed via the failed 2026-09-16 04:20 run's own
+          # diagnostic block (added then removed) showing even `.config`
+          # "missing" from the wrong cwd.
+          cp -v bin/targets/lpc32xx/generic/*-initramfs-kernel.bin "$OUT"/ || \
+            echo "WARNING: no initramfs-kernel.bin produced -- check CONFIG_TARGET_ROOTFS_INITRAMFS"
+
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
           gpg --batch --yes --pinentry-mode loopback \
@@ -186,27 +202,6 @@ jobs:
 
           # Own dedicated branch path ("wattbox") -- no merge needed.
           echo '{"lpc32xx/generic": "arm_arm926ej-s"}' > "$TREE/wattbox/.targets.json"
-
-          # DIAGNOSTIC (2026-09-15): the plain cp below has silently found
-          # nothing on the last real run despite CONFIG_TARGET_ROOTFS_INITRAMFS=y
-          # and no build errors anywhere. Dump the full real picture before
-          # guessing again -- every *.bin under bin/, every kernel/tmp dir
-          # under build_dir for this target, and the actual .config values.
-          echo "::group::initramfs diagnostic"
-          echo "--- CONFIG_TARGET_ROOTFS_INITRAMFS / KERNEL_INITRAMFS-related .config lines ---"
-          grep -i "INITRAMFS" .config || echo "(no matches in .config)"
-          echo "--- every *.bin under bin/targets/lpc32xx ---"
-          find bin/targets/lpc32xx -iname "*.bin" 2>/dev/null || echo "(bin/targets/lpc32xx missing entirely)"
-          echo "--- every file/dir with 'initramfs' in the name under build_dir for this target ---"
-          find build_dir/target-arm_arm926ej-s_musl_eabi -iname "*initramfs*" 2>/dev/null
-          echo "::endgroup::"
-
-          # Recovery/bring-up tool, not a device deployment artifact -- ASU's
-          # ImageBuilder only repackages pre-built packages, it can't produce
-          # this (needs a real kernel build). Published here so it's fetchable
-          # the same way as everything else, not through the ASU build API.
-          cp -v bin/targets/lpc32xx/generic/*-initramfs-kernel.bin "$OUT"/ || \
-            echo "WARNING: no initramfs-kernel.bin produced -- check CONFIG_TARGET_ROOTFS_INITRAMFS"
 
       - name: Build custom ImageBuilder image
         working-directory: openwrt-src/docker/imagebuilder
