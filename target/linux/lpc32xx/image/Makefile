@@ -51,7 +51,7 @@ define Device/Default
 	KERNEL_NAME := zImage
 	KERNEL := kernel-bin | append-dtb
 	KERNEL_INITRAMFS := kernel-bin | append-dtb
-	FILESYSTEMS := squashfs
+	FILESYSTEMS := squashfs initramfs
 	BLOCKSIZE := 128k
 	IMAGES := sysupgrade.bin
 	IMAGE/sysupgrade.bin := check-wattbox-rootfs-size | append-kernel | pad-to 128k | append-rootfs | pad-rootfs | append-metadata
