@@ -51,7 +51,26 @@ jobs:
         # host permission over. `podman unshare` runs inside that same user
         # namespace, where the mapping resolves correctly -- confirmed
         # directly on guinevere before applying here.
-        run: podman unshare rm -rf openwrt-src
+        #
+        # 2026-09-16: a mid-build `gh run cancel` on the WattBox workflow
+        # (same shared checkout path) left a stray mount/overlay attached
+        # under build_dir (rm -rf failed with "Directory not empty" on
+        # build_dir/host/u-boot-2026.07/dts/upstream/Bindings, not an
+        # ownership error) -- a hard cancel doesn't wait for podman to tear
+        # its mounts down cleanly. `podman unshare rm -rf` alone can't fix
+        # that (it's not a namespace/ownership problem), so it failed the
+        # whole job outright and needed a manual `sudo rm -rf` on guinevere
+        # to recover. Sweep any lingering mounts under this path first,
+        # then fall back to `sudo rm -rf` (bypasses ownership entirely) if
+        # the namespaced rm still can't finish -- covers both failure
+        # modes without needing to know in advance which one a given prior
+        # run left. Applied to all 4 device workflows since they share
+        # this exact path/runner.
+        run: |
+          for mnt in $(mount | awk -v p="$(pwd)/openwrt-src" 'index($3, p) == 1 {print $3}' | sort -r); do
+            sudo umount -l "$mnt" || true
+          done
+          podman unshare rm -rf openwrt-src || sudo rm -rf openwrt-src
 
       - name: Checkout eljefe80/openwrt (mx60w)
         uses: actions/checkout@v4
