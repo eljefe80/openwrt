@@ -11,6 +11,13 @@
 wb_picwdt_start() {
 	[ -f /tmp/wb-picwdt.started ] && return 0
 	touch /tmp/wb-picwdt.started
+	# CONFIG_DEVTMPFS is off (standard OpenWrt choice) and this early in
+	# preinit -- deliberately before mdev's coldplug scan ever runs -- no
+	# device-node population mechanism has created /dev/mem yet. wb-picwdt
+	# needs it (raw GPIO register access, see package/wb-picwdt/src). Create
+	# it directly rather than waiting on mdev, which would cost the seconds
+	# of margin this hook exists to protect (see the file header above).
+	[ -e /dev/mem ] || mknod /dev/mem c 1 1
 	/usr/sbin/wb-picwdt &
 }
 
