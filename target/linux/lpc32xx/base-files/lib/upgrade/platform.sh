@@ -45,7 +45,15 @@ platform_do_upgrade() {
 	kb=$((off / 65536))
 	# "rootfs" partition size (hex bytes from /proc/mtd) in 64k blocks; the
 	# image's rootfs part is padded larger than the partition, so cap the write.
-	rb=$(sed -n 's/^mtd[0-9]*: \([0-9a-f]*\) .*"rootfs".*/\1/p' /proc/mtd | head -1)
+	# NOTE: no `| head -1` here -- this runs inside sysupgrade's minimal
+	# stage2 ramdisk, whose cut-down busybox doesn't include the `head`
+	# applet (confirmed via a real failed sysupgrade: "head: not found",
+	# then a cascading "sed: write error" from the broken pipe once head
+	# didn't exist to read it, then an arithmetic syntax error below from
+	# the now-empty $rb -- aborted safely before touching flash, but never
+	# got past this line). `sed -n ... ;q` gets the same single-line
+	# result without depending on a separate command at all.
+	rb=$(sed -n '/"rootfs"/{s/^mtd[0-9]*: \([0-9a-f]*\) .*/\1/p;q}' /proc/mtd)
 	rb=$(( (0x$rb) / 65536 ))
 	# kernel = [0, off) -> "kernel" mtd; rootfs = [off, off+partition) -> "rootfs".
 	dd if="$img" bs=65536 count="$kb" 2>/dev/null | mtd write - kernel
