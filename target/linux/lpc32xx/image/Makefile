@@ -111,6 +111,21 @@ define Device/snapav_wattbox-wb300vb
 	# Without this, the device cannot stay up past the failsafe-mode
 	# window on any boot, corrupted rootfs or not.
 	#
+	# wb-picwdt REMOVED again 2026-09-16 -- superseded by a real in-kernel
+	# driver (drivers/watchdog/wb_picwdt.c, CONFIG_WB_PICWDT=y, registered
+	# via the "picwdt" DT node), not dropped. The userspace daemon and the
+	# kernel driver bit-bang the SAME two GPIO lines (P0.6/P0.7) -- running
+	# both at once would corrupt the PIC protocol, so this is an either/or
+	# swap, not an addition. Why: procd's sysupgrade handoff kills nearly
+	# all userspace before the actual flash write, which would kill this
+	# daemon mid-upgrade with nothing left feeding the PIC -- the exact
+	# failure mode that corrupted this device once already (see
+	# project_wattbox_wb300vb_recovery memory, 2026-09-14 incident). A
+	# kthread started from the kernel driver's own probe() isn't a
+	# process procd's cleanup can kill, so it survives that handoff with
+	# no special handling -- making a normal `sysupgrade`/`owut upgrade`
+	# safe on this device for the first time.
+	#
 	# openwisp-config/openwisp-monitoring DROPPED again 2026-09-16: live
 	# rootfs measured 2,083,352 bytes with them in -- 313,880 bytes over
 	# the 1,769,472 mtd2 budget, confirming (a second time, now on a real
@@ -119,7 +134,7 @@ define Device/snapav_wattbox-wb300vb
 	# problem, an actual capacity shortfall. Re-add only alongside a real
 	# repartition or a smaller alternative to openwisp-config's own chain
 	# (curl+lua+libuci-lua+luafilesystem+luci-lib-nixio+ca-certificates).
-	DEVICE_PACKAGES := owut wbctl wb-picwdt
+	DEVICE_PACKAGES := owut wbctl
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 

@@ -1,0 +1,44 @@
+From: Jeff Williams <jeff@wdwconsulting.net>
+Date: Wed, 16 Sep 2026 12:00:00 -0700
+Subject: [PATCH] watchdog: add WattBox WB-300VB-IP-5 external PIC driver
+
+Registers a real /dev/watchdog device for this board's external PIC
+watchdog (bit-banged on GPIO P0.6/P0.7), replacing the userspace
+wb-picwdt daemon it's ported from. The actual feed runs in a kthread
+started unconditionally from probe(), not gated behind the watchdog
+core's start()/ping() -- see the driver's own header comment for why:
+the PIC needs continuous protocol activity from very early boot, and
+a kthread survives a sysupgrade's procd handoff (which kills nearly
+all userspace before the flash write) with no special handling on
+procd's side, unlike the userspace daemon it replaces.
+
+Signed-off-by: Jeff Williams <jeff@wdwconsulting.net>
+---
+ drivers/watchdog/Kconfig  |   10 ++++++++++
+ drivers/watchdog/Makefile |    1 +
+ 2 files changed, 11 insertions(+)
+
+--- a/drivers/watchdog/Kconfig
++++ b/drivers/watchdog/Kconfig
+@@ -2354,4 +2354,14 @@
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called keembay_wdt.
+
++config WB_PICWDT
++	bool "SnapAV WattBox WB-300VB-IP-5 external PIC watchdog"
++	depends on ARCH_LPC32XX
++	select WATCHDOG_CORE
++	help
++	  Feeds the WattBox WB-300VB-IP-5's external PIC watchdog by
++	  reproducing the vendor firmware's GPIO bit-bang protocol on
++	  P0.6/P0.7 from a dedicated kernel thread. Board-specific; say
++	  N unless building for this exact device.
++
+ endif # WATCHDOG
+--- a/drivers/watchdog/Makefile
++++ b/drivers/watchdog/Makefile
+@@ -243,3 +243,4 @@
+ obj-$(CONFIG_RAVE_SP_WATCHDOG) += rave-sp-wdt.o
+ obj-$(CONFIG_STPMIC1_WATCHDOG) += stpmic1_wdt.o
+ obj-$(CONFIG_SL28CPLD_WATCHDOG) += sl28cpld_wdt.o
++obj-$(CONFIG_WB_PICWDT) += wb_picwdt.o

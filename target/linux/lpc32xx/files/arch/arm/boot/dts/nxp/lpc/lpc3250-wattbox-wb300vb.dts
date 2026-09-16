@@ -281,3 +281,17 @@
 		};
 	};
 };
+
+/*
+ * External PIC watchdog (see drivers/watchdog/wb_picwdt.c). No "reg" here
+ * on purpose -- the driver ioremap()s the fixed GPIO block address (also
+ * bound by &gpio below) directly rather than claiming it via the standard
+ * resource API, to avoid a resource conflict with that existing binding.
+ * The two only ever touch disjoint bits (P0.6/P0.7 here) via the block's
+ * separate set/clear registers, so there's no read-modify-write race.
+ */
+/ {
+	picwdt {
+		compatible = "snapav,wb300vb-picwdt";
+	};
+};
