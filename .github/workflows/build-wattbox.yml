@@ -60,23 +60,31 @@ jobs:
         # namespace, where the mapping resolves correctly -- confirmed
         # directly on guinevere before applying here.
         #
-        # 2026-09-16: a mid-build `gh run cancel` on a PRIOR run left a
-        # stray mount/overlay attached under build_dir (rm -rf failed with
-        # "Directory not empty" on build_dir/host/u-boot-2026.07/dts/
-        # upstream/Bindings, not an ownership error this time) -- a hard
-        # cancel doesn't wait for podman to tear its mounts down cleanly.
-        # `podman unshare rm -rf` alone can't fix that (it's not a
-        # namespace/ownership problem), so it failed the whole job outright
-        # and needed a manual `sudo rm -rf` on guinevere to recover. Sweep
-        # any lingering mounts under this path first, then fall back to
-        # `sudo rm -rf` (bypasses ownership entirely) if the namespaced
-        # rm still can't finish -- covers both failure modes without
-        # needing to know in advance which one a given prior run left.
+        # 2026-09-16: a mid-build `gh run cancel` on a PRIOR run left
+        # build_dir un-removable ("Directory not empty" -- twice now,
+        # different leftover paths each time, e.g.
+        # build_dir/host/u-boot-2026.07/dts/upstream/Bindings once and
+        # build_dir/target-arm_cortex-a7+neon-vfpv4_musl_eabi/
+        # linux-ipq40xx_generic another time) -- a hard cancel doesn't
+        # wait for podman to tear its mounts down cleanly, and whatever's
+        # still attached isn't visible to a plain host-level `mount`
+        # (checked -- found nothing), so it must only be visible from
+        # inside podman's own rootless user/mount namespace. Do the sweep
+        # AND the rm from inside that same `podman unshare` context instead
+        # of the host's, and don't bother with a `sudo` fallback -- the CI
+        # runner user has no sudo at all ("I'm afraid I can't do that"),
+        # so that fallback was silently dead code both times this fired.
+        # NOTE: this still isn't guaranteed bulletproof against every
+        # possible state a cancel could leave -- if it ever fails again,
+        # the recovery is a manual `sudo rm -rf` on guinevere itself
+        # (has real root), not a workflow change.
         run: |
-          for mnt in $(mount | awk -v p="$(pwd)/openwrt-src" 'index($3, p) == 1 {print $3}' | sort -r); do
-            sudo umount -l "$mnt" || true
-          done
-          podman unshare rm -rf openwrt-src || sudo rm -rf openwrt-src
+          podman unshare sh -c '
+            for mnt in $(mount | awk -v p="'"$(pwd)"'/openwrt-src" "index(\$3, p) == 1 {print \$3}" | sort -r); do
+              umount -l "$mnt" 2>/dev/null || true
+            done
+            rm -rf openwrt-src
+          '
 
       - name: Checkout eljefe80/openwrt (wattbox-lpc32xx-port)
         uses: actions/checkout@v4
