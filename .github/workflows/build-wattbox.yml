@@ -105,6 +105,14 @@ jobs:
           CONFIG_PACKAGE_openwisp-config=y
           CONFIG_PACKAGE_openwisp-monitoring=y
           CONFIG_TARGET_ROOTFS_INITRAMFS=y
+          # wb-picwdt mmaps GPIO registers via /dev/mem -- target/linux/generic's
+          # own config-6.18 has "# CONFIG_DEVMEM is not set" and a plain target-level
+          # override doesn't take (known gap, see gotcha_wattbox_devmem memory);
+          # CONFIG_KERNEL_DEVMEM=y at this top-level .config is the confirmed fix.
+          # Without this, wb-picwdt fails immediately ("FATAL open /dev/mem failed:
+          # No such file or directory") and the PIC watchdog resets ~20s into boot
+          # exactly like the original bug this package exists to fix.
+          CONFIG_KERNEL_DEVMEM=y
           # CONFIG_PACKAGE_dnsmasq is not set
           # CONFIG_PACKAGE_firewall4 is not set
           # CONFIG_PACKAGE_nftables is not set
