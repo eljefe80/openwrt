@@ -185,6 +185,26 @@ jobs:
           cp -rv bin/targets/apm821xx/nand/packages "$OUT"/
           cp -v bin/targets/apm821xx/nand/profiles.json "$OUT"/
 
+          # openwisp-config/openwisp-monitoring/owut (and everything else
+          # pulled from a real feed, not this target's own kernel/kmod set)
+          # build into bin/packages/<arch>/<feed>/, NOT bin/targets/.../
+          # packages -- confirmed on guinevere directly (same fact already
+          # proven for WattBox's own workflow, see its "Publish
+          # downloads-tree artifacts" step comment). That target-specific
+          # dir above only holds packages tied to this exact kernel/
+          # subtarget (base-files, kmod-*, kernel). A real device's owut/apk
+          # needs this arch-level tree reachable too -- without it, `owut
+          # check` reports nearly every base package as "missing to-version"
+          # even though the target-specific dir published fine (confirmed:
+          # this is exactly what MX60W's real device hit 2026-09-17).
+          # Shared "snapshots" tree with WHW03/RBS40V -- those are a
+          # different arch (ipq40xx/ARM vs apm821xx/powerpc), so scoping the
+          # rm -rf to just this arch's own subdir can't clobber theirs.
+          ARCH_OUT="$TREE/snapshots/packages/powerpc_464fp"
+          rm -rf "$ARCH_OUT"
+          mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/powerpc_464fp/. "$ARCH_OUT"/
+
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
           gpg --batch --yes --pinentry-mode loopback \
