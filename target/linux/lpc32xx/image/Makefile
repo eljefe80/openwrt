@@ -138,4 +138,29 @@ define Device/snapav_wattbox-wb300vb
 endef
 TARGET_DEVICES += snapav_wattbox-wb300vb
 
+# NOT a real, flashable device -- exists purely to get openwisp-config/
+# openwisp-monitoring compiled and published to the package feed for
+# runtime `apk add` onto an already-running WattBox's overlay (see
+# gotcha_openwrt_package_select_forces_install memory: on a single-profile
+# target, CONFIG_PACKAGE_x=y always installs into that profile's own
+# TARGET_DIR, so there is no way to select a package into the feed without
+# also selecting it into SOME device's image -- CONFIG_TARGET_MULTI_PROFILE
+# + CONFIG_TARGET_PER_DEVICE_ROOTFS makes that "some device" this one
+# instead of the real snapav_wattbox-wb300vb profile). IMAGES left empty
+# deliberately: this device never builds a kernel/rootfs/sysupgrade.bin at
+# all, so it can never hit check-wattbox-rootfs-size or any other real
+# device's build failure -- DEVICE_PACKAGES only needs to exist long enough
+# for target-metadata.pl to emit `select DEFAULT_openwisp-config` /
+# `select DEFAULT_openwisp-monitoring` against this profile's own Kconfig
+# option, which is a source-scan-time effect, independent of whether any
+# image ever gets built for it.
+define Device/snapav_wattbox-wb300vb-openwisp-feed
+	DEVICE_VENDOR := SnapAV
+	DEVICE_MODEL := WattBox WB-300VB-IP-5 (openwisp feed carrier, not a real image)
+	DEVICE_DTS := lpc3250-wattbox-wb300vb
+	IMAGES :=
+	DEVICE_PACKAGES := openwisp-config openwisp-monitoring
+endef
+TARGET_DEVICES += snapav_wattbox-wb300vb-openwisp-feed
+
 $(eval $(call BuildImage))
