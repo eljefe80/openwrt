@@ -122,22 +122,36 @@ jobs:
           CONFIG_IB=y
           CONFIG_PACKAGE_wbctl=y
           CONFIG_TARGET_ROOTFS_INITRAMFS=y
-          # openwisp-config/openwisp-monitoring are DELIBERATELY NOT selected
-          # here. First attempt set these =y expecting "compile-only, not in
-          # the image" -- wrong: OpenWrt package Kconfig options are bool,
-          # not tristate (confirmed in scripts/package-metadata.pl -- the
-          # tristate branch is dead code, nothing ever sets $pkg->{tristate}),
-          # and package/Makefile's PACKAGE_INSTALL_FILES pulls from
-          # $(package-y) only. On this single-profile device target, =y
-          # ALWAYS means "install into TARGET_DIR", i.e. into the base
-          # image -- there is no "select but don't install" via .config here.
-          # Real oversize failure confirmed twice this way (2174274 bytes >
-          # 1769472 mtd2 capacity, both times). The actual fix: leave them
-          # unselected here, and compile+index them as their own explicit
-          # step below ("Compile openwisp packages for the feed, not the
-          # image") which bypasses .config's package-y install-list entirely.
-          # Published to the feed so they can be `apk add`ed onto the overlay
-          # at runtime instead (see project_wattbox_wb300vb_recovery memory).
+          # openwisp-config/openwisp-monitoring: NOT buildable for this
+          # target at all right now, deliberately left out entirely --
+          # this isn't a size-budget call like the "is not set" lines
+          # below, it's a real OpenWrt build-system limitation. Three
+          # attempts to get them into the published feed without landing
+          # in DEVICE_PACKAGES/the base image all failed:
+          #   1. CONFIG_PACKAGE_x=y expecting "compile-only" -- wrong,
+          #      package Kconfig options are bool not tristate (the
+          #      tristate branch in scripts/package-metadata.pl is dead
+          #      code), and package/Makefile's PACKAGE_INSTALL_FILES pulls
+          #      from $(package-y) only -- on this single-profile target,
+          #      =y always means "install into TARGET_DIR". Oversized the
+          #      image twice (2174274 > 1769472 mtd2 capacity).
+          #   2. An explicit `make package/.../compile` step, unselected in
+          #      .config, to bypass package-y -- wrong feed path (custom
+          #      src-git feed was redundant, official "packages" feed
+          #      already has both), then even fixed, wrong TARGET: `compile`
+          #      alone never builds the .apk archive for a package that
+          #      isn't selected -- package-pack.mk gates the entire PACK_$(1)
+          #      archive-build chain behind `ifneq ($(CONFIG_PACKAGE_$(1))
+          #      $(DEVELOPER),)`, unconditionally, with no bypass. Confirmed
+          #      live on guinevere: dependencies that WERE selected (uci,
+          #      ubus, curl, etc) got real fresh .apk files; openwisp-config/
+          #      openwisp-monitoring themselves never did, silently.
+          # Real fix needs CONFIG_TARGET_MULTI_PROFILE (a second, unused
+          # device profile so DEVICE_PACKAGES-per-profile diverges from the
+          # global package-y build set) or a wholly separate non-WattBox
+          # build of these two packages -- bigger lift than this pipeline
+          # warrants right now. See gotcha_openwrt_package_select_forces_install
+          # memory.
           # wb-picwdt is now a real kernel watchdog driver (CONFIG_WB_PICWDT,
           # drivers/watchdog/wb_picwdt.c), not a userspace daemon -- it
           # mmaps the LPC32xx GPIO block directly in the driver itself, no
@@ -204,41 +218,6 @@ jobs:
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
             bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
-
-      - name: Compile openwisp packages for the feed, not the image
-        working-directory: openwrt-src
-        # No custom feed needed -- openwisp-config/openwisp-monitoring are
-        # ALREADY in the official upstream "packages" feed (confirmed live
-        # on guinevere: package/feeds/packages/openwisp-config symlinks to
-        # feeds/packages/admin/openwisp-config). An earlier version of this
-        # step added a redundant custom src-git feed and pointed at
-        # package/feeds/openwisp/openwisp-config/compile, which never
-        # existed -- `scripts/feeds install -a` correctly skipped creating
-        # a duplicate symlink for a package name already installed from
-        # the standard feed. That silently failed (no `set -e` in the
-        # script) and this step reported success without building anything.
-        #
-        # Explicit per-directory compile targets bypass .config's
-        # package-y install-list entirely (see the "Seed target config"
-        # comment above) -- these build against the same staging_dir
-        # `make world` just populated, so no re-download/re-toolchain-build
-        # happens here. `make package/index` regenerates the published apk
-        # index for every feed subdir (including this one), same as `make
-        # world` already did for feeds that ARE in DEVICE_PACKAGES --
-        # redundant for those, required for this one.
-        run: |
-          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
-            -v "$(pwd):/workdir" -w /workdir \
-            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
-            bash -c 'set -e
-              make -j"$(nproc)" \
-                package/feeds/packages/openwisp-config/compile \
-                package/feeds/packages/openwisp-monitoring/compile \
-              || make -j1 V=s \
-                package/feeds/packages/openwisp-config/compile \
-                package/feeds/packages/openwisp-monitoring/compile
-              make package/index
-            '
 
       - name: Publish downloads-tree artifacts
         working-directory: openwrt-src
