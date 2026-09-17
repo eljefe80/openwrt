@@ -125,12 +125,23 @@ platform_do_upgrade() {
 	netgear,lbr20|\
 	netgear,rbr20|\
 	netgear,rbs20|\
-	netgear,rbs40v|\
 	netgear,wac510|\
 	p2w,r619ac-64m|\
 	p2w,r619ac-128m|\
 	qxwlan,e2600ac-c2|\
 	wallys,dr40x9)
+		nand_do_upgrade "$1"
+		;;
+	netgear,rbs40v)
+		# This board's UBI container MTD partition is named "rootfs" (see
+		# /proc/mtd), not the nand.sh library default of "ubi". Without this,
+		# nand_attach_ubi's find_mtd_index("ubi") comes up empty,
+		# nand_upgrade_prepare_ubi returns 1 before touching any flash, and
+		# nand_do_upgrade_failed just reboots -- a silent, uncorrupted revert
+		# to the old system that looks like a hang/failure with no on-flash
+		# evidence. Confirmed live: pre- and post-"upgrade" reboot showed
+		# identical DISTRIB_REVISION and identical UBI rootfs volume size.
+		CI_UBIPART="rootfs"
 		nand_do_upgrade "$1"
 		;;
 	alfa-network,ap120c-ac)
