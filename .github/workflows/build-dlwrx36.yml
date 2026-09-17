@@ -112,6 +112,28 @@ jobs:
           cp -rv bin/targets/qualcommax/ipq807x/packages "$OUT"/
           cp -v bin/targets/qualcommax/ipq807x/profiles.json "$OUT"/
 
+          # openwisp-config/owut (and everything else pulled from a real
+          # feed, not this target's own kernel/kmod set) build into
+          # bin/packages/<arch>/<feed>/, NOT bin/targets/.../packages --
+          # confirmed live on MX60W's real device 2026-09-17: without this,
+          # owut check reports nearly every base package "missing to-
+          # version" even though the target-specific tree published fine.
+          # Same fix as build-mx60w.yml's own publish step.
+          # NOTE: real upstream openwrt.org confirms (profiles.json's own
+          # arch_packages field) qualcommax/ipq807x and airoha/an7581 SHARE
+          # the exact arch string aarch64_cortex-a53 -- both this workflow
+          # and build-gemtekw1700k.yml republish (rm -rf + overwrite) the
+          # SAME directory here. That's expected, matching how real
+          # openwrt.org buckets by arch, not by target -- both builds pull
+          # the same feeds off the same openwrt/openwrt@master, so the
+          # content should stay effectively equivalent build-to-build; only
+          # a real feed/version divergence between the two builds would
+          # ever make this collision matter.
+          ARCH_OUT="$TREE/snapshots/packages/aarch64_cortex-a53"
+          rm -rf "$ARCH_OUT"
+          mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/aarch64_cortex-a53/. "$ARCH_OUT"/
+
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
           gpg --batch --yes --pinentry-mode loopback \
