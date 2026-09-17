@@ -105,6 +105,26 @@ jobs:
           cp -rv bin/targets/airoha/an7581/packages "$OUT"/
           cp -v bin/targets/airoha/an7581/profiles.json "$OUT"/
 
+          # openwisp-config/owut (and everything else pulled from a real
+          # feed, not this target's own kernel/kmod set) build into
+          # bin/packages/<arch>/<feed>/, NOT bin/targets/.../packages --
+          # confirmed live on MX60W's real device 2026-09-17: without this,
+          # owut check reports nearly every base package "missing to-
+          # version" even though the target-specific tree published fine.
+          # Same fix as build-mx60w.yml's own publish step.
+          # NOTE: real upstream openwrt.org confirms (profiles.json's own
+          # arch_packages field) airoha/an7581 and qualcommax/ipq807x SHARE
+          # the exact arch string aarch64_cortex-a53, despite this target's
+          # own top-level Makefile saying ARCH:=arm -- verified against the
+          # real published snapshot, not assumed from that variable. Both
+          # this workflow and build-dlwrx36.yml republish (rm -rf +
+          # overwrite) the SAME directory here; see that workflow's own
+          # comment for why this is expected, not a bug.
+          ARCH_OUT="$TREE/snapshots/packages/aarch64_cortex-a53"
+          rm -rf "$ARCH_OUT"
+          mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/aarch64_cortex-a53/. "$ARCH_OUT"/
+
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
           gpg --batch --yes --pinentry-mode loopback \
