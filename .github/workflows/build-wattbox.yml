@@ -106,19 +106,6 @@ jobs:
       - name: Clone wbctl package
         run: git clone --depth 1 https://github.com/eljefe80/wbctl.git openwrt-src/package/wbctl
 
-      - name: Add openwisp-config feed
-        # Re-added 2026-09-16: openwisp-config/monitoring don't fit baked
-        # into DEVICE_PACKAGES (confirmed oversized twice, see the size
-        # investigation in target/linux/lpc32xx/image/Makefile), but Jeff
-        # wants them installable onto the overlay at runtime instead --
-        # that needs them to exist as real .apk files in the published
-        # feed, which needs this feed source + explicit package selection
-        # below (compile-only, deliberately NOT in DEVICE_PACKAGES).
-        working-directory: openwrt-src
-        run: |
-          echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
-          echo "src-git openwispmonitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
-
       - name: Update and install feeds
         working-directory: openwrt-src
         run: |
@@ -220,25 +207,36 @@ jobs:
 
       - name: Compile openwisp packages for the feed, not the image
         working-directory: openwrt-src
+        # No custom feed needed -- openwisp-config/openwisp-monitoring are
+        # ALREADY in the official upstream "packages" feed (confirmed live
+        # on guinevere: package/feeds/packages/openwisp-config symlinks to
+        # feeds/packages/admin/openwisp-config). An earlier version of this
+        # step added a redundant custom src-git feed and pointed at
+        # package/feeds/openwisp/openwisp-config/compile, which never
+        # existed -- `scripts/feeds install -a` correctly skipped creating
+        # a duplicate symlink for a package name already installed from
+        # the standard feed. That silently failed (no `set -e` in the
+        # script) and this step reported success without building anything.
+        #
         # Explicit per-directory compile targets bypass .config's
         # package-y install-list entirely (see the "Seed target config"
-        # comment above) -- these two build against the same staging_dir
+        # comment above) -- these build against the same staging_dir
         # `make world` just populated, so no re-download/re-toolchain-build
-        # happens here. `package/index` regenerates the published apk index
-        # for every feed subdir (including these two), same as `make world`
-        # already did for the feeds that ARE in DEVICE_PACKAGES -- redundant
-        # for those, required for these.
+        # happens here. `make package/index` regenerates the published apk
+        # index for every feed subdir (including this one), same as `make
+        # world` already did for feeds that ARE in DEVICE_PACKAGES --
+        # redundant for those, required for this one.
         run: |
           podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
-            bash -c '
+            bash -c 'set -e
               make -j"$(nproc)" \
-                package/feeds/openwisp/openwisp-config/compile \
-                package/feeds/openwispmonitoring/openwisp-monitoring/compile \
+                package/feeds/packages/openwisp-config/compile \
+                package/feeds/packages/openwisp-monitoring/compile \
               || make -j1 V=s \
-                package/feeds/openwisp/openwisp-config/compile \
-                package/feeds/openwispmonitoring/openwisp-monitoring/compile
+                package/feeds/packages/openwisp-config/compile \
+                package/feeds/packages/openwisp-monitoring/compile
               make package/index
             '
 
