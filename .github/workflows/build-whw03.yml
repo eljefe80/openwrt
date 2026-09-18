@@ -222,6 +222,40 @@ jobs:
           cp -rv bin/targets/ipq40xx/generic/packages "$OUT"/
           cp -v bin/targets/ipq40xx/generic/profiles.json "$OUT"/
 
+          # Same real bug found and fixed on MX60W (2026-09-17-18): a
+          # target-specific packages/ tree alone isn't enough for owut/ASU
+          # to see any base package (busybox, ubus, dnsmasq, etc) --
+          # confirmed live on .103, which hit the identical "34 missing/133
+          # out-of-date" signature despite this build otherwise succeeding
+          # and its multi-profile (linksys_whw03 + linksys_whw03v2) fix
+          # already being correct. Two things needed, neither of which
+          # `make world` produces on its own:
+          #   1. The arch-level bin/packages/<arch>/ tree (base, packages,
+          #      luci, routing, ...) as a sibling to targets/, not just the
+          #      target-specific kmod/kernel/base-files set above.
+          #   2. A <arch>/feeds.conf listing which feed subdirectories
+          #      exist -- confirmed via ASU's own source
+          #      (github.com/openwrt/asu, asu/main.py's json_v1_arch_index
+          #      + util.py's parse_feeds_conf): without it, ASU's feed list
+          #      is empty and it never looks inside any of them regardless
+          #      of their real content.
+          # Shared "snapshots" tree with MX60W -- different arch
+          # (apm821xx/powerpc vs ipq40xx/ARM), so scoping to this arch's own
+          # subdir can't clobber it. RBS40V uses this same arch
+          # (arm_cortex-a7_neon-vfpv4) but publishes to its own separate
+          # "rbs40v" branch/path, not "snapshots" -- no collision there
+          # either.
+          ARCH_OUT="$TREE/snapshots/packages/arm_cortex-a7_neon-vfpv4"
+          rm -rf "$ARCH_OUT"
+          mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/arm_cortex-a7_neon-vfpv4/. "$ARCH_OUT"/
+
+          for feed_dir in "$ARCH_OUT"/*/; do
+            feed_name=$(basename "$feed_dir")
+            [ -f "$feed_dir/index.json" ] && echo "src-git $feed_name generated"
+          done > "$ARCH_OUT/feeds.conf"
+          echo "Generated feeds.conf:"; cat "$ARCH_OUT/feeds.conf"
+
           cd "$OUT"
           # -b (binary mode) is REQUIRED, not cosmetic: openwrt/docker's
           # setup.sh parses this file with `cut -d "*" -f 2` to find the
