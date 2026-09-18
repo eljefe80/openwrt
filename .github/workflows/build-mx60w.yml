@@ -1,29 +1,27 @@
 name: ASU build - MX60W
 
-# MX60W builds from real upstream openwrt/openwrt@master -- genuinely stock,
-# zero fork changes, the only one of the four devices still like this.
-# Deliberately NOT push-triggered off eljefe80/openwrt (nothing there would
-# ever change for this device) -- manual dispatch + weekly schedule, same
-# reasoning WHW03 originally had before it needed its own fork branch.
+# UPDATED 2026-09-13: now checks out eljefe80/openwrt@mx60w, NOT upstream
+# openwrt/openwrt -- MX60W needed its own fork branch the moment it needed
+# DEVICE_PACKAGES additions (owut + luci-app-attendedsysupgrade, matching
+# WHW03/RBS40V) and a uci-defaults script pointing it at our own ASU
+# instance (http://asu.int.wdwconsulting.net) instead of the default
+# sysupgrade.openwrt.org -- both require patching target/linux/apm821xx
+# directly, which stock upstream by definition can't carry. This also means
+# docker/imagebuilder/ now lives in the SAME checkout as the source (see
+# the fork branch's own commit message for why: MX60W's official/stock
+# imagebuilder can no longer be used once its DEVICE_PACKAGES list is
+# patched -- ImageBuilder bakes a fixed package list into the image itself,
+# it doesn't recompile from source per build), so the separate sparse-clone
+# step the old (now-removed) master-branch version of this workflow needed
+# is gone -- one checkout covers both now, same as every other device.
 #
-# Real design correction vs. that original WHW03 workflow: docker/imagebuilder/
-# only exists in the FORK (eljefe80/openwrt), not upstream -- so unlike a
-# fork-branch build where one checkout covers both the source and the
-# Containerfile, this needs a SEPARATE fetch just for that directory. Uses a
-# plain sparse git clone (not actions/checkout's sparse-checkout options) for
-# a predictable, directly-testable command.
-#
-# base_container is a single global asu.toml setting, now pointed at
-# ghcr.io/eljefe80/imagebuilder -- MX60W's source is stock, but it still
-# needs its OWN pushed image under that same registry (even though its
-# content is identical to what the official upstream image already has)
-# purely so the one shared setting keeps working across all four devices.
-#
-# This repo is public and the runner is self-hosted -- only
-# workflow_dispatch/schedule/push-to-a-branch-only-Jeff-pushes-to are safe
+# This repo is public and the runner is self-hosted -- only push (to this
+# exact branch, never a catch-all)/workflow_dispatch/schedule are safe
 # trigger types. Never add pull_request/pull_request_target.
 
 on:
+  push:
+    branches: [mx60w]
   workflow_dispatch: {}
   schedule:
     - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
@@ -53,13 +51,32 @@ jobs:
         # host permission over. `podman unshare` runs inside that same user
         # namespace, where the mapping resolves correctly -- confirmed
         # directly on guinevere before applying here.
-        run: podman unshare rm -rf openwrt-src
+        #
+        # 2026-09-16: a mid-build `gh run cancel` on the WattBox workflow
+        # (same shared checkout path) left a stray mount/overlay attached
+        # under build_dir (rm -rf failed with "Directory not empty" on
+        # build_dir/host/u-boot-2026.07/dts/upstream/Bindings, not an
+        # ownership error) -- a hard cancel doesn't wait for podman to tear
+        # its mounts down cleanly. `podman unshare rm -rf` alone can't fix
+        # that (it's not a namespace/ownership problem), so it failed the
+        # whole job outright and needed a manual `sudo rm -rf` on guinevere
+        # to recover. Sweep any lingering mounts under this path first,
+        # then fall back to `sudo rm -rf` (bypasses ownership entirely) if
+        # the namespaced rm still can't finish -- covers both failure
+        # modes without needing to know in advance which one a given prior
+        # run left. Applied to all 4 device workflows since they share
+        # this exact path/runner.
+        run: |
+          for mnt in $(mount | awk -v p="$(pwd)/openwrt-src" 'index($3, p) == 1 {print $3}' | sort -r); do
+            sudo umount -l "$mnt" || true
+          done
+          podman unshare rm -rf openwrt-src || sudo rm -rf openwrt-src
 
-      - name: Checkout upstream OpenWrt
+      - name: Checkout eljefe80/openwrt (mx60w)
         uses: actions/checkout@v4
         with:
-          repository: openwrt/openwrt
-          ref: master
+          repository: eljefe80/openwrt
+          ref: mx60w
           path: openwrt-src
 
       - name: Login to ghcr.io (for pulls, not just the later push)
@@ -72,20 +89,18 @@ jobs:
         # Authenticated pulls get a much higher limit; reuses the same
         # GITHUB_TOKEN the later push step already relies on.
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
-        run: |
-          # rm -rf first: this plain shell clone (unlike the actions/checkout
-          # step above) isn't auto-cleaned between runs on this persistent
-          # self-hosted runner -- a retry after a failed run hit "destination
-          # path already exists" for real.
-          rm -rf docker-imagebuilder-src
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/eljefe80/openwrt.git docker-imagebuilder-src
-          cd docker-imagebuilder-src
-          git sparse-checkout set docker/imagebuilder
 
       - name: Add openwisp-config feed
         working-directory: openwrt-src
-        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+        # For opensoho check-in. Real facts confirmed against the actual
+        # package repo (github.com/openwisp/openwisp-config), not guessed:
+        # package name is exactly "openwisp-config", no branch suffix needed
+        # (defaults to its own master). The actual server URL + shared secret
+        # are NOT baked in here -- see this repo's own commit message and
+        # opensoho-asu-stack/CI.md for why (public repo, can't hold a secret).
+        run: |
+          echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+          echo "src-git openwispmonitoring https://github.com/openwisp/openwrt-openwisp-monitoring.git" >> feeds.conf.default
 
       - name: Update and install feeds
         working-directory: openwrt-src
@@ -102,6 +117,7 @@ jobs:
           CONFIG_TARGET_apm821xx_nand_DEVICE_meraki_mx60=y
           CONFIG_IB=y
           CONFIG_PACKAGE_openwisp-config=y
+          CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
           make defconfig
 
@@ -147,6 +163,10 @@ jobs:
         # bare Ubuntu 26.04 (glibc 2.38+) failed a real ASU build request
         # with "GLIBC_2.38 not found" against
         # ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 (glibc 2.31).
+        # -e FORCE_UNSAFE_CONFIGURE=1: tools/tar's own configure script
+        # refuses to run as root otherwise ("you should not run configure
+        # as root") -- confirmed via a real failed run, --user 0:0 above
+        # is exactly root inside the container.
         run: |
           podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
@@ -164,6 +184,26 @@ jobs:
           rm -rf "$OUT/packages"
           cp -rv bin/targets/apm821xx/nand/packages "$OUT"/
           cp -v bin/targets/apm821xx/nand/profiles.json "$OUT"/
+
+          # openwisp-config/openwisp-monitoring/owut (and everything else
+          # pulled from a real feed, not this target's own kernel/kmod set)
+          # build into bin/packages/<arch>/<feed>/, NOT bin/targets/.../
+          # packages -- confirmed on guinevere directly (same fact already
+          # proven for WattBox's own workflow, see its "Publish
+          # downloads-tree artifacts" step comment). That target-specific
+          # dir above only holds packages tied to this exact kernel/
+          # subtarget (base-files, kmod-*, kernel). A real device's owut/apk
+          # needs this arch-level tree reachable too -- without it, `owut
+          # check` reports nearly every base package as "missing to-version"
+          # even though the target-specific dir published fine (confirmed:
+          # this is exactly what MX60W's real device hit 2026-09-17).
+          # Shared "snapshots" tree with WHW03/RBS40V -- those are a
+          # different arch (ipq40xx/ARM vs apm821xx/powerpc), so scoping the
+          # rm -rf to just this arch's own subdir can't clobber theirs.
+          ARCH_OUT="$TREE/snapshots/packages/powerpc_464fp"
+          rm -rf "$ARCH_OUT"
+          mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/powerpc_464fp/. "$ARCH_OUT"/
 
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
@@ -183,11 +223,11 @@ jobs:
           mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
 
       - name: Build custom ImageBuilder image
-        working-directory: docker-imagebuilder-src/docker/imagebuilder
+        working-directory: openwrt-src/docker/imagebuilder
         run: |
           podman build \
             --build-arg TARGET=apm821xx/nand \
-            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg FILE_HOST=http://host.containers.internal \
             --build-arg VERSION_PATH=snapshots \
             --build-arg RUN_SETUP=1 \
             -t ghcr.io/eljefe80/imagebuilder:apm821xx-nand-master \
