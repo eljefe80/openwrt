@@ -1,0 +1,171 @@
+name: ASU build - DL-WRX36
+
+# DL-WRX36 (10.203.1.2) builds from real upstream openwrt/openwrt@master --
+# genuinely stock, zero fork changes, same pattern as MX60W (see that
+# workflow's own comments for the full reasoning this one copies).
+# Deliberately NOT push-triggered off eljefe80/openwrt -- manual dispatch +
+# weekly schedule.
+#
+# base_container is a single global asu.toml setting, pointed at
+# ghcr.io/eljefe80/imagebuilder -- this device's source is stock, but it
+# still needs its OWN pushed image under that same registry so the shared
+# setting keeps working across every device sharing it.
+#
+# This repo is public and the runner is self-hosted -- only
+# workflow_dispatch/schedule are safe trigger types. Never add
+# pull_request/pull_request_target.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Force-clean the shared workspace before checkout
+        # All device workflows share this exact physical checkout path
+        # (_work/<owner>/<repo>/openwrt-src, keyed by repo only) -- see
+        # build-mx60w.yml for the full story on why this must run inside
+        # `podman unshare`, not a bare `rm -rf`.
+        run: podman unshare rm -rf openwrt-src
+
+      - name: Checkout upstream OpenWrt
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: master
+          path: openwrt-src
+
+      - name: Login to ghcr.io (for pulls, not just the later push)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
+        run: |
+          rm -rf docker-imagebuilder-src
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/eljefe80/openwrt.git docker-imagebuilder-src
+          cd docker-imagebuilder-src
+          git sparse-checkout set docker/imagebuilder
+
+      - name: Add openwisp-config feed
+        working-directory: openwrt-src
+        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+
+      - name: Update and install feeds
+        working-directory: openwrt-src
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Seed target config
+        working-directory: openwrt-src
+        run: |
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_qualcommax=y
+          CONFIG_TARGET_qualcommax_ipq807x=y
+          CONFIG_TARGET_qualcommax_ipq807x_DEVICE_dynalink_dl-wrx36=y
+          CONFIG_IB=y
+          CONFIG_PACKAGE_openwisp-config=y
+          EOF
+          make defconfig
+
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # MUST run right here, after Seed target config -- see build-whw03.yml
+        # for the full story: `make defconfig` (bare host) itself builds
+        # staging_dir/host/bin/mkhash for this device's config.
+        run: podman unshare rm -rf staging_dir build_dir bin
+
+      - name: Download sources
+        working-directory: openwrt-src
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make download -j"$(nproc)" || {
+              echo "::group::Verbose re-run for diagnostics (make -j1 V=s download)"
+              make -j1 V=s download
+              exit 1
+            }'
+
+      - name: Build (make world)
+        working-directory: openwrt-src
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
+
+      - name: Publish downloads-tree artifacts
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          TREE=/srv/asu-downloads
+          OUT="$TREE/snapshots/targets/qualcommax/ipq807x"
+          mkdir -p "$OUT"
+          cp -v bin/targets/qualcommax/ipq807x/openwrt-imagebuilder-*.tar.* "$OUT"/
+          rm -rf "$OUT/packages"
+          cp -rv bin/targets/qualcommax/ipq807x/packages "$OUT"/
+          cp -v bin/targets/qualcommax/ipq807x/profiles.json "$OUT"/
+
+          # openwisp-config/owut (and everything else pulled from a real
+          # feed, not this target's own kernel/kmod set) build into
+          # bin/packages/<arch>/<feed>/, NOT bin/targets/.../packages --
+          # confirmed live on MX60W's real device 2026-09-17: without this,
+          # owut check reports nearly every base package "missing to-
+          # version" even though the target-specific tree published fine.
+          # Same fix as build-mx60w.yml's own publish step.
+          # NOTE: real upstream openwrt.org confirms (profiles.json's own
+          # arch_packages field) qualcommax/ipq807x and airoha/an7581 SHARE
+          # the exact arch string aarch64_cortex-a53 -- both this workflow
+          # and build-gemtekw1700k.yml republish (rm -rf + overwrite) the
+          # SAME directory here. That's expected, matching how real
+          # openwrt.org buckets by arch, not by target -- both builds pull
+          # the same feeds off the same openwrt/openwrt@master, so the
+          # content should stay effectively equivalent build-to-build; only
+          # a real feed/version divergence between the two builds would
+          # ever make this collision matter.
+          ARCH_OUT="$TREE/snapshots/packages/aarch64_cortex-a53"
+          rm -rf "$ARCH_OUT"
+          mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/aarch64_cortex-a53/. "$ARCH_OUT"/
+
+          cd "$OUT"
+          sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
+          gpg --batch --yes --pinentry-mode loopback \
+            --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
+            --detach-sign --armor --output sha256sums.asc sha256sums
+
+          echo "Published:"
+          ls -la "$OUT"
+
+          # Shared "snapshots" branch/path with WHW03/MX60W -- merge our own
+          # target key in with jq, never overwrite theirs.
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"qualcommax/ipq807x": "aarch64_cortex-a53"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+
+      - name: Build custom ImageBuilder image
+        working-directory: docker-imagebuilder-src/docker/imagebuilder
+        run: |
+          podman build \
+            --build-arg TARGET=qualcommax/ipq807x \
+            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg VERSION_PATH=snapshots \
+            --build-arg RUN_SETUP=1 \
+            -t ghcr.io/eljefe80/imagebuilder:qualcommax-ipq807x-master \
+            -f Containerfile .
+
+      - name: Push ImageBuilder image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/eljefe80/imagebuilder:qualcommax-ipq807x-master
+
+      - name: Prune dangling podman images
+        if: always()
+        run: podman image prune -f
