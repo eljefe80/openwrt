@@ -134,6 +134,26 @@ jobs:
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/aarch64_cortex-a53/. "$ARCH_OUT"/
 
+          # Publishing the tree above alone is NOT enough -- confirmed live
+          # on MX60W (2026-09-17): owut still reported every base package
+          # "missing to-version" until this second file also existed. Root
+          # cause found by reading the real ASU server source
+          # (github.com/openwrt/asu, asu/main.py's json_v1_arch_index +
+          # util.py's parse_feeds_conf): ASU fetches a SEPARATE
+          # <arch>/feeds.conf to learn which feed subdirectories exist at
+          # all -- with none published, its feed list is empty and it
+          # never looks inside base/, packages/, luci/, etc regardless of
+          # their real content. `make world` doesn't generate this file
+          # itself. Generate our own from whatever feed subdirectories this
+          # build actually produced an index.json for (not from
+          # feeds.conf.default, which lists feeds that may produce zero
+          # packages for this target, and omits "base" entirely).
+          for feed_dir in "$ARCH_OUT"/*/; do
+            feed_name=$(basename "$feed_dir")
+            [ -f "$feed_dir/index.json" ] && echo "src-git $feed_name generated"
+          done > "$ARCH_OUT/feeds.conf"
+          echo "Generated feeds.conf:"; cat "$ARCH_OUT/feeds.conf"
+
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
           gpg --batch --yes --pinentry-mode loopback \
