@@ -1,0 +1,179 @@
+name: ASU build - AmpliFi HD
+
+# AmpliFi Router HD builds from real upstream openwrt/openwrt@master --
+# genuinely stock, zero fork changes, same pattern as MX60W/DL-WRX36/
+# Gemtek W1700K (see build-mx60w.yml's own comments for the full
+# reasoning this one copies). Deliberately NOT push-triggered off
+# eljefe80/openwrt -- manual dispatch + weekly schedule.
+#
+# base_container is a single global asu.toml setting, pointed at
+# ghcr.io/eljefe80/imagebuilder -- this device's source is stock, but it
+# still needs its OWN pushed image under that same registry so the shared
+# setting keeps working across every device sharing it.
+#
+# Profile confirmed directly in target/linux/ath79/image/generic-ubnt.mk
+# (`define Device/ubnt_amplifi-router-hd`): target ath79/generic, SoC
+# qca9563 (QCA956X), IMAGE_SIZE 11264k -- matches the real device's own
+# U-Boot-reported firmware partition size (11534336 bytes) confirmed
+# live 2026-09-18/19 during the OpenWrt bring-up (see
+# project_amplifi_hd2_openwrt memory).
+#
+# This repo is public and the runner is self-hosted -- only
+# workflow_dispatch/schedule are safe trigger types. Never add
+# pull_request/pull_request_target.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Force-clean the shared workspace before checkout
+        # All device workflows share this exact physical checkout path
+        # (_work/<owner>/<repo>/openwrt-src, keyed by repo only) -- see
+        # build-mx60w.yml for the full story on why this must run inside
+        # `podman unshare`, not a bare `rm -rf`.
+        run: podman unshare rm -rf openwrt-src
+
+      - name: Checkout upstream OpenWrt
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: master
+          path: openwrt-src
+
+      - name: Login to ghcr.io (for pulls, not just the later push)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
+        run: |
+          rm -rf docker-imagebuilder-src
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/eljefe80/openwrt.git docker-imagebuilder-src
+          cd docker-imagebuilder-src
+          git sparse-checkout set docker/imagebuilder
+
+      - name: Add openwisp-config feed
+        working-directory: openwrt-src
+        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+
+      - name: Update and install feeds
+        working-directory: openwrt-src
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Seed target config
+        working-directory: openwrt-src
+        run: |
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_ath79=y
+          CONFIG_TARGET_ath79_generic=y
+          CONFIG_TARGET_ath79_generic_DEVICE_ubnt_amplifi-router-hd=y
+          CONFIG_IB=y
+          CONFIG_PACKAGE_openwisp-config=y
+          EOF
+          make defconfig
+
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # MUST run right here, after Seed target config -- see build-whw03.yml
+        # for the full story: `make defconfig` (bare host) itself builds
+        # staging_dir/host/bin/mkhash for this device's config.
+        run: podman unshare rm -rf staging_dir build_dir bin
+
+      - name: Download sources
+        working-directory: openwrt-src
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make download -j"$(nproc)" || {
+              echo "::group::Verbose re-run for diagnostics (make -j1 V=s download)"
+              make -j1 V=s download
+              exit 1
+            }'
+
+      - name: Build (make world)
+        working-directory: openwrt-src
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
+
+      - name: Publish downloads-tree artifacts
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          TREE=/srv/asu-downloads
+          OUT="$TREE/snapshots/targets/ath79/generic"
+          mkdir -p "$OUT"
+          cp -v bin/targets/ath79/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
+          rm -rf "$OUT/packages"
+          cp -rv bin/targets/ath79/generic/packages "$OUT"/
+          cp -v bin/targets/ath79/generic/profiles.json "$OUT"/
+
+          # openwisp-config/owut (and everything else pulled from a real
+          # feed, not this target's own kernel/kmod set) build into
+          # bin/packages/<arch>/<feed>/, NOT bin/targets/.../packages --
+          # confirmed live on MX60W's real device 2026-09-17: without this,
+          # owut check reports nearly every base package "missing to-
+          # version" even though the target-specific tree published fine.
+          # Same fix as every other device's publish step.
+          ARCH_OUT="$TREE/snapshots/packages/mips_24kc"
+          rm -rf "$ARCH_OUT"
+          mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/mips_24kc/. "$ARCH_OUT"/
+
+          # Second required file -- see build-mx60w.yml's own comment for
+          # the full root cause (ASU's json_v1_arch_index needs a per-arch
+          # feeds.conf enumerating feed subdirectories, which `make world`
+          # doesn't generate itself).
+          for feed_dir in "$ARCH_OUT"/*/; do
+            feed_name=$(basename "$feed_dir")
+            [ -f "$feed_dir/index.json" ] && echo "src-git $feed_name generated"
+          done > "$ARCH_OUT/feeds.conf"
+          echo "Generated feeds.conf:"; cat "$ARCH_OUT/feeds.conf"
+
+          cd "$OUT"
+          sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
+          gpg --batch --yes --pinentry-mode loopback \
+            --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
+            --detach-sign --armor --output sha256sums.asc sha256sums
+
+          echo "Published:"
+          ls -la "$OUT"
+
+          # Shared "snapshots" branch/path with WHW03/MX60W/DL-WRX36/Gemtek --
+          # merge our own target key in with jq, never overwrite theirs.
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"ath79/generic": "mips_24kc"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+
+      - name: Build custom ImageBuilder image
+        working-directory: docker-imagebuilder-src/docker/imagebuilder
+        run: |
+          podman build \
+            --build-arg TARGET=ath79/generic \
+            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg VERSION_PATH=snapshots \
+            --build-arg RUN_SETUP=1 \
+            -t ghcr.io/eljefe80/imagebuilder:ath79-generic-master \
+            -f Containerfile .
+
+      - name: Push ImageBuilder image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/eljefe80/imagebuilder:ath79-generic-master
+
+      - name: Prune dangling podman images
+        if: always()
+        run: podman image prune -f
