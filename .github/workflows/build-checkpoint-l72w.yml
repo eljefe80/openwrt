@@ -158,10 +158,16 @@ jobs:
 
       - name: Build custom ImageBuilder image
         working-directory: docker-imagebuilder-src/docker/imagebuilder
+        # FILE_HOST is guinevere's explicit VLAN16 downloads IP (10.203.16.45),
+        # the value the working build-amplifihd.yml uses -- NOT
+        # host.containers.internal, which was refused from the build container
+        # on the first run. --no-cache so this run's build-args (VERSION_PATH=l72w)
+        # actually apply instead of reusing another device's cached ARG/ENV layers
+        # (the first run's log showed stale "Using cache" on FILE_HOST/VERSION_PATH).
         run: |
-          podman build \
+          podman build --no-cache \
             --build-arg TARGET=alpine/checkpoint \
-            --build-arg FILE_HOST=http://host.containers.internal \
+            --build-arg FILE_HOST=http://10.203.16.45 \
             --build-arg VERSION_PATH=l72w \
             --build-arg RUN_SETUP=1 \
             -t ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-openwrt-L72W \
