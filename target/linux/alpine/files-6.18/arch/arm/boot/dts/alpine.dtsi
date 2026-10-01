@@ -1,0 +1,511 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+//
+// SoC-common Annapurna Labs Alpine AL31400 nodes, split out of
+// alpine-mikrotik.dtsi (from the closed, unmerged openwrt/openwrt PR
+// #23189, ref pull/23189/head) with all MikroTik RB1100AHx4 board-specific
+// wiring (LEDs, bypass relay, reset button, microSD-over-SPI, beeper)
+// removed. Register addresses verified against a real boot-time DT pulled
+// from a Check Point L-72W (same AL31400 SoC family, confirmed via
+// U-Boot's own "Device Info: AL31400-1700" banner and RouterBOOT's
+// "AL31400X-140" banner on the RB1100AHx4 — see project_l72w_openwrt.md).
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	compatible = "annapurna-labs,alpine";
+
+	aliases {
+		spi2 = &spi;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		enable-method = "annapurna-labs,al-smp";
+
+		cpu0: cpu@0 {
+			compatible = "arm,cortex-a15";
+			device_type = "cpu";
+			reg = <0>;
+			clock-frequency = <1400000000>;
+		};
+
+		cpu1: cpu@1 {
+			compatible = "arm,cortex-a15";
+			device_type = "cpu";
+			reg = <1>;
+			clock-frequency = <1400000000>;
+		};
+
+		cpu2: cpu@2 {
+			compatible = "arm,cortex-a15";
+			device_type = "cpu";
+			reg = <2>;
+			clock-frequency = <1400000000>;
+		};
+
+		cpu3: cpu@3 {
+			compatible = "arm,cortex-a15";
+			device_type = "cpu";
+			reg = <3>;
+			clock-frequency = <1400000000>;
+		};
+	};
+
+	soc: soc {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		compatible = "simple-bus";
+		interrupt-parent = <&gic>;
+		ranges;
+
+		arch-timer {
+			compatible = "arm,cortex-a15-timer", "arm,armv7-timer";
+			interrupts =
+				<GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+				<GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+				<GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>,
+				<GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_LOW)>;
+			clock-frequency = <50000000>;
+		};
+
+		gic: interrupt-controller@fb001000 {
+			compatible = "arm,cortex-a15-gic";
+			#interrupt-cells = <3>;
+			#size-cells = <0>;
+			#address-cells = <0>;
+			interrupt-controller;
+			reg = <0x0 0xfb001000 0x0 0x1000>,
+			      <0x0 0xfb002000 0x0 0x2000>,
+			      <0x0 0xfb004000 0x0 0x2000>,
+			      <0x0 0xfb006000 0x0 0x2000>;
+			interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(4) | IRQ_TYPE_LEVEL_HIGH)>;
+		};
+
+		ccu: ccu@fb090000 {
+			compatible = "annapurna-labs,al-ccu";
+			reg = <0x0 0xfb090000 0x0 0x10000>;
+			io_coherency = <0x1>;
+		};
+
+		pmu {
+			compatible = "arm,cortex-a15-pmu";
+			interrupts = <GIC_SPI 68 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 69 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 70 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 71 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		uart0: serial@fd883000 {
+			compatible = "ns16550a";
+			reg = <0x0 0xfd883000 0x0 0x1000>;
+			clock-frequency = <375000000>;
+			interrupts = <GIC_SPI 17 IRQ_TYPE_LEVEL_HIGH>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		uart1: serial@fd884000 {
+			compatible = "ns16550a";
+			reg = <0x0 0xfd884000 0x0 0x1000>;
+			clock-frequency = <375000000>;
+			interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		timer1: timer@fd891000 {
+			compatible = "arm,sp804", "arm,primecell";
+			reg = <0x0 0xfd891000 0x0 0x1000>;
+			interrupts = <GIC_SPI 10 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-names = "apb_pclk";
+		};
+
+		gpio0: gpio@fd887000 {
+			#gpio-cells = <0x2>;
+			compatible = "arm,pl061", "arm,primecell";
+			gpio-controller;
+			reg = <0x0 0xfd887000 0x0 0x1000>;
+			interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-names = "apb_pclk";
+		};
+
+		gpio1: gpio@fd888000 {
+			#gpio-cells = <0x2>;
+			compatible = "arm,pl061", "arm,primecell";
+			gpio-controller;
+			reg = <0x0 0xfd888000 0x0 0x1000>;
+			interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-names = "apb_pclk";
+		};
+
+		/* gpio2: mmc interface (sck, miso, mosi) */
+		gpio2: gpio@fd889000 {
+			#gpio-cells = <0x2>;
+			compatible = "arm,pl061", "arm,primecell";
+			gpio-controller;
+			reg = <0x0 0xfd889000 0x0 0x1000>;
+			interrupts = <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-names = "apb_pclk";
+		};
+
+		/* gpio3: mmc-cs[1], mmc-pwr[2], mmc-cd[3], user-led[4], relay[5], beeper[6], button[7] */
+		gpio3: gpio@fd88a000 {
+			#gpio-cells = <0x2>;
+			compatible = "arm,pl061", "arm,primecell";
+			gpio-controller;
+			reg = <0x0 0xfd88a000 0x0 0x1000>;
+			interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-names = "apb_pclk";
+		};
+
+		/* gpio4: on the L-72W, pin 7 (global gpio-39) is real-time
+		 * confirmed as "SW_INT" -- live on real hardware (2026-09-19,
+		 * stock firmware's own /sys/kernel/debug/gpio, count nonzero
+		 * and increasing, unlike prestera's own IRQ 45 which never
+		 * fires). This is a genuinely different pin/label than the
+		 * "mdio-select[6], monitor-select[7]" comment this inherited
+		 * from the MikroTik RB1100AHx4 reference board this file was
+		 * derived from -- that labeling is real for THAT board, not
+		 * this one. interrupt-controller/#interrupt-cells added so a
+		 * child node (or gpio_to_irq()-style driver code) can consume
+		 * gpio-39 as a real per-pin IRQ, not just the whole-bank one.
+		 */
+		gpio4: gpio@fd88b000 {
+			#gpio-cells = <0x2>;
+			compatible = "arm,pl061", "arm,primecell";
+			gpio-controller;
+			interrupt-controller;
+			#interrupt-cells = <0x2>;
+			reg = <0x0 0xfd88b000 0x0 0x1000>;
+			interrupts = <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-names = "apb_pclk";
+		};
+
+		/* gpio5: unused on the original RB1100AHx4 board DTS */
+		gpio5: gpio@fd897000 {
+			#gpio-cells = <0x2>;
+			compatible = "arm,pl061", "arm,primecell";
+			gpio-controller;
+			reg = <0x0 0xfd897000 0x0 0x1000>;
+			interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-names = "apb_pclk";
+		};
+
+		pcie_internal: pcie@fbc00000 {
+			compatible = "annapurna-labs,al-internal-pcie";
+			device_type = "pci";
+			dma-coherent;
+			#size-cells = <0x2>;
+			#address-cells = <0x3>;
+			#interrupt-cells = <0x1>;
+			reg = <0x0 0xfbc00000 0x0 0x100000>;
+			interrupt-map-mask = <0xf800 0x00 0x00 0x07>;
+			interrupt-map = <0x0000 0x0 0x0 0x1 &gic GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>,
+					<0x0800 0x0 0x0 0x1 &gic GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>,
+					<0x1000 0x0 0x0 0x1 &gic GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>,
+					<0x1800 0x0 0x0 0x1 &gic GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>,
+					<0x2000 0x0 0x0 0x1 &gic GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
+					<0x2800 0x0 0x0 0x1 &gic GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>,
+					<0x4000 0x0 0x0 0x1 &gic GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>,
+					<0x4800 0x0 0x0 0x1 &gic GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>;
+			ranges = <0x00000000 0x0 0x00000000 0x0 0xfbc00000 0x0 0x100000>,
+				 <0x02000000 0x0 0xfe000000 0x0 0xfe000000 0x0 0x1000000>;
+			bus-range = <0x0 0x0>;
+			msi-parent = <&msix>;
+
+			eth0: ethernet@0,0 {
+				reg = <0x0000 0 0 0 0>;
+				status = "disabled";
+				al,media-type = <6>;
+				al,serdes-grp = <3>;
+				al,serdes-lane = <3>;
+				al,mdio-freq = <1>;
+				al,an-disable;
+				al,dont-override-serdes;
+				eth0_mdio: mdio {
+					#address-cells = <1>;
+					#size-cells = <0>;
+				};
+			};
+
+			eth1: ethernet@1,0 {
+				reg = <0x0800 0 0 0 0>;
+				status = "disabled";
+				al,media-type = <6>;
+				al,serdes-grp = <3>;
+				al,serdes-lane = <2>;
+				al,mdio-freq = <1>;
+				al,an-disable;
+				al,dont-override-serdes;
+				/* No "mdio" child here — see the identical note on
+				 * eth2 above; a second bus with this driver's
+				 * hardcoded "mdio-al-eth-0" id collides with
+				 * eth0's and fails that device's probe entirely.
+				 */
+			};
+
+			eth2: ethernet@2,0 {
+				reg = <0x1000 0 0 0 0>;
+				status = "disabled";
+				al,media-type = <6>;
+				al,serdes-grp = <3>;
+				al,serdes-lane = <1>;
+				al,mdio-freq = <1>;
+				al,an-disable;
+				al,dont-override-serdes;
+				/* NOTE: deliberately no "mdio" child here. The
+				 * al_eth driver's al_eth_sw_mdio_probe()
+				 * hardcodes bus->name = "mdio-al-eth" and
+				 * bus->id = "<name>-0" for EVERY instance
+				 * (drivers/net/ethernet/al/al_eth.c) — a second
+				 * "mdio" child anywhere else collides with
+				 * whichever eth node registers first and fails
+				 * with "cannot create duplicate filename
+				 * '/class/mdio_bus/mdio-al-eth-0'", aborting
+				 * that device's probe entirely (confirmed live
+				 * on the Check Point L-72W, 2026-09-12). None of
+				 * this SoC's ports need this bus in practice —
+				 * leave it only on eth0, never add it here or on
+				 * eth3 below.
+				 */
+			};
+
+			/* 4th internal MAC — genuinely real hardware, but never
+			 * declared by the RB1100AHx4 reference this file was
+			 * split from (that board only wires up 3 of the 4
+			 * al_eth instances via external DSA switches). This is
+			 * how U-Boot itself refers to the 4 MACs at the "Net:"
+			 * banner: al_eth0/1/2/3 — this is al_eth3. Confirmed
+			 * present via bare PCI-style auto-discovery on the
+			 * Check Point L-72W (PCI address 0000:00:03.0) even
+			 * with NO matching OF child node at all: this driver
+			 * tries reading board params from bootloader-programmed
+			 * hardware scratch registers FIRST
+			 * (al_eth_board_params_get() in al_eth.c) and only
+			 * falls back to these al,* DT properties if that read
+			 * fails — so a real MAC can probe and work correctly
+			 * with zero DT properties set, as this one did (came up
+			 * RGMII, fixed 1000M, no external PHY, but with a
+			 * kernel-random MAC address since nothing assigned one).
+			 * Enabling it here mainly gets it a stable name and a
+			 * real MAC address instead of relying on that implicit
+			 * bare discovery.
+			 */
+			eth3: ethernet@3,0 {
+				reg = <0x1800 0 0 0 0>;
+				status = "disabled";
+			};
+
+		};
+
+		/* 2 external PCIe root ports (Root-Complex mode), driven by
+		 * the same vendor host-bridge driver as pcie_internal above
+		 * (arch/arm/mach-alpine/pcie_of.c, compatible
+		 * "annapurna-labs,al-pci"). reg/ranges/bus-range/interrupt-map
+		 * values are carried over from this board's real boot-time
+		 * device tree (Check Point's legacy 3.10 kernel's own
+		 * "pcie-external0/1" nodes), same translation approach as
+		 * pcie_internal. Wired to the board's 2 Qualcomm Atheros PCIe
+		 * WiFi radios (Gen2 x1 each) -- no DT child nodes needed,
+		 * they're standard PCI endpoints that ath9k/ath10k auto-bind
+		 * to once the bus is enumerated. A 3rd external port
+		 * (pcie-external2, wired to a Renesas USB3 xHCI controller)
+		 * exists on this board too but isn't declared here: the link
+		 * trains and the endpoint enumerates, but any access to its
+		 * BAR0 crashes the kernel -- not wired up.
+		 */
+		pcie_external0: pcie@fd800000 {
+			compatible = "annapurna-labs,al-pci";
+			device_type = "pci";
+			status = "disabled";
+			#size-cells = <0x2>;
+			#address-cells = <0x3>;
+			#interrupt-cells = <0x1>;
+			reg = <0x0 0xfd800000 0x0 0x20000>;
+			interrupt-map-mask = <0x0 0x0 0x0 0x7>;
+			interrupt-map = <0x0 0x0 0x0 0x1 &gic GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>;
+			ranges = <0x00000000 0x0 0xfb600000 0x0 0xfb600000 0x0 0x00200000>,
+				 <0x01000000 0x0 0x00010000 0x0 0xe0000000 0x0 0x00010000>,
+				 <0x02000000 0x0 0xe0010000 0x0 0xe0010000 0x0 0x07ff0000>;
+			bus-range = <0x0 0xff>;
+			msi-parent = <&msix>;
+		};
+
+		pcie_external1: pcie@fd820000 {
+			compatible = "annapurna-labs,al-pci";
+			device_type = "pci";
+			status = "disabled";
+			#size-cells = <0x2>;
+			#address-cells = <0x3>;
+			#interrupt-cells = <0x1>;
+			reg = <0x0 0xfd820000 0x0 0x20000>;
+			interrupt-map-mask = <0x0 0x0 0x0 0x7>;
+			interrupt-map = <0x0 0x0 0x0 0x1 &gic GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
+			ranges = <0x00000000 0x0 0xfb800000 0x0 0xfb800000 0x0 0x00200000>,
+				 <0x01000000 0x0 0x00020000 0x0 0xe8000000 0x0 0x00010000>,
+				 <0x02000000 0x0 0xe8010000 0x0 0xe8010000 0x0 0x03ff0000>;
+			bus-range = <0x0 0xff>;
+			msi-parent = <&msix>;
+		};
+
+		msix: msix@fbe00000 {
+			compatible = "annapurna-labs,al-msix";
+			reg = <0x0 0xfbe00000 0x0 0x100000>;
+			interrupt-controller;
+			#interrupt-cells = <0>;
+			msi-controller;
+			al,msi-base-spi = <96>;
+			al,msi-num-spis = <64>;
+		};
+
+		nand: nand-flash@fa100000 {
+			compatible = "annapurna-labs,al-nand";
+			reg = <0x0 0xfa100000 0x0 0x202000>;
+			interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
+			al,num-cs = <1>;
+			status = "okay";
+		};
+
+		spi: spi@fd882000 {
+			compatible = "amazon,alpine-dw-apb-ssi";
+			#address-cells = <0x1>;
+			#size-cells = <0x0>;
+			reg = <0x0 0xfd882000 0x0 0x1000>;
+			interrupts = <GIC_SPI 23 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			status = "disabled";
+
+			spiflash: flash@0 {
+				#address-cells = <1>;
+				#size-cells = <1>;
+				compatible = "jedec,spi-nor";
+				reg = <0x0>;
+				spi-max-frequency = <25000000>;
+			};
+		};
+
+		tsens: thermal-sensor@fd860a00 {
+			compatible = "annapurna-labs,al-thermal";
+			reg = <0x0 0xfd860a00 0x0 0x100>;
+			annapurna-labs,pbs = <&pbs>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		serdes: serdes@fd8c0000 {
+			compatible = "annapurna-labs,al-serdes";
+			reg = <0x0 0xfd8c0000 0x0 0x1000>;
+		};
+
+		pbs: pbs@fd8a8000 {
+			compatible = "annapurna-labs,al-pbs";
+			reg = <0x0 0xfd8a8000 0x0 0x1000>;
+		};
+
+		watchdog: watchdog@fd88c000 {
+			compatible = "arm,sp805", "arm,primecell";
+			reg = <0x0 0xfd88c000 0x0 0x1000>;
+			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>, <&sbclk>;
+			clock-names = "wdog_clk", "apb_pclk";
+		};
+
+		sysfabric: sysfabric-service@fb070000 {
+			compatible = "annapurna-labs,al-nb-service", "syscon";
+			reg = <0x0 0xfb070000 0x0 0x10000>;
+			interrupts = <GIC_SPI 160 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 161 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 162 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 163 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		cpu_resume: cpu-resume@fbff5ec0 {
+			compatible = "annapurna-labs,al-cpu-resume";
+			reg = <0x0 0xfbff5ec0 0x0 0x30>;
+		};
+
+		clocks {
+			#address-cells = <0x1>;
+			#size-cells = <0x0>;
+
+			sbclk: sbclk {
+				#clock-cells = <0x0>;
+				compatible = "fixed-clock";
+				clock-frequency = <375000000>;
+			};
+		};
+
+		/*
+		 * "i2c-pld" in the legacy DT -- the board-level I2C bus
+		 * (RTC, GPIO expanders driving LEDs, hwmon chips). Populated
+		 * per-board in the board .dts; disabled here since which
+		 * chips exist varies by board. See alpine-l72w.dts and
+		 * project_l72w_openwrt.md for the L-72W's real, live-
+		 * confirmed device list (2026-09-13).
+		 *
+		 * clocks: the legacy DT's own i2c-pld node pointed at a
+		 * clock it ALSO called "sbclk" but valued at 1MHz -- a
+		 * different domain from &sbclk above (375MHz). Trusted that
+		 * 1MHz value at first (2026-09-13) and it was wrong: the
+		 * DesignWare i2c driver uses this rate directly to compute
+		 * SCL hcnt/lcnt timing registers (i2c_dw_clk_rate() ->
+		 * i2c_dw_scl_hcnt/lcnt() in i2c-designware-common.c), and
+		 * 1MHz produced degenerate timing -- real hardware test
+		 * failed immediately ("lost arbitration" / pcf857x probe
+		 * -11 on both expanders, while the stock 3.10 kernel probes
+		 * the same chips cleanly). This SoC's fd8xxxxx MMIO region
+		 * (uart0 @ fd883000, spi @ fd882000, gpio0-5, this i2c
+		 * controller) is one shared APB block, and every other
+		 * peripheral in it already uses the real 375MHz &sbclk --
+		 * i2c0 does too now. CONFIRMED WORKING on real hardware
+		 * (2026-09-13): both pcf8575 expanders on this bus probe
+		 * cleanly ("pcf857x 0-0020/0-0021: probed"), no more "lost
+		 * arbitration" errors.
+		 */
+		i2c0: i2c@fd880000 {
+			compatible = "snps,designware-i2c";
+			#address-cells = <0x1>;
+			#size-cells = <0x0>;
+			reg = <0x0 0xfd880000 0x0 0x1000>;
+			interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&sbclk>;
+			clock-frequency = <400000>;
+			status = "disabled";
+		};
+	};
+
+	thermal-zones {
+		cpu-thermal {
+			polling-delay-passive = <250>;
+			polling-delay = <1000>;
+			thermal-sensors = <&tsens>;
+
+			trips {
+				cpu-crit {
+					temperature = <105000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+	};
+
+	restart_poweroff {
+		compatible = "restart-poweroff";
+	};
+};
