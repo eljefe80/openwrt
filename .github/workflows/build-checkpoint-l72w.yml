@@ -1,0 +1,177 @@
+name: ASU build - Check Point L-72W
+
+# Check Point L-72W builds from eljefe80/openwrt's `checkpoint-l72w` branch --
+# a fully custom target (Annapurna Alpine AL314xx; no upstream OpenWrt support)
+# that adds target/linux/alpine with the "checkpoint" subtarget and the
+# Marvell 98DX3234 DSA switch driver. Same fork-branch pattern as RBS40V /
+# WattBox, but `checkpoint-l72w` is deliberately kept as a clean, upstreamable
+# target branch -- it does NOT carry docker/imagebuilder (fork infra), so that
+# directory is sparse-cloned separately from the fork (the MX60W/AmpliFi
+# pattern), rather than used in-tree like RBS40V.
+#
+# Lives on master (not the clean target branch) and is manual/scheduled only,
+# so the target branch stays free of CI plumbing and push-build coupling.
+#
+# ASU facts (see opensoho-asu-stack TARGETS.md + CI.md):
+#   target/subtarget alpine/checkpoint, profile checkpoint_l72w,
+#   arch arm_cortex-a15_neon-vfpv4, dedicated branch path "l72w",
+#   ASU branch key "L72W" (MUST contain a digit -- purely-alphabetic names
+#   hang owut), request version "L72W-SNAPSHOT",
+#   container tag ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-openwrt-L72W.
+#
+# No external/vendored companion package (unlike RBS40V's led-ring-mqtt).
+# No custom FIT/mkits script, so no host device-tree-compiler needed.
+#
+# Public repo + self-hosted runner: only workflow_dispatch/schedule are safe
+# trigger types here. Never add pull_request/pull_request_target.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: [self-hosted, asu-builder]
+    steps:
+      - name: Force-clean the shared workspace before checkout
+        # All device workflows share this one physical checkout path
+        # (_work/<owner>/<repo>/openwrt-src, keyed by repo only). A prior
+        # containerized build can leave files owned by a subordinate UID or
+        # a stray overlay mount that plain checkout-clean can't remove -- see
+        # build-rbs40v.yml for the full story. Sweep mounts, then namespaced
+        # rm, then sudo rm as a last resort.
+        run: |
+          for mnt in $(mount | awk -v p="$(pwd)/openwrt-src" 'index($3, p) == 1 {print $3}' | sort -r); do
+            sudo umount -l "$mnt" || true
+          done
+          podman unshare rm -rf openwrt-src || sudo rm -rf openwrt-src
+
+      - name: Checkout eljefe80/openwrt (checkpoint-l72w)
+        uses: actions/checkout@v4
+        with:
+          repository: eljefe80/openwrt
+          ref: checkpoint-l72w
+          path: openwrt-src
+
+      - name: Login to ghcr.io (for pulls, not just the later push)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Fetch imagebuilder Containerfile from eljefe80/openwrt
+        # checkpoint-l72w is a clean target branch and has no docker/ tree;
+        # sparse-clone just docker/imagebuilder from a fork branch that does.
+        run: |
+          rm -rf docker-imagebuilder-src
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/eljefe80/openwrt.git docker-imagebuilder-src
+          cd docker-imagebuilder-src
+          git sparse-checkout set docker/imagebuilder
+
+      - name: Add openwisp-config feed
+        working-directory: openwrt-src
+        run: echo "src-git openwisp https://github.com/openwisp/openwisp-config.git" >> feeds.conf.default
+
+      - name: Update and install feeds
+        working-directory: openwrt-src
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Seed target config
+        working-directory: openwrt-src
+        run: |
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_alpine=y
+          CONFIG_TARGET_alpine_checkpoint=y
+          CONFIG_TARGET_alpine_checkpoint_DEVICE_checkpoint_l72w=y
+          CONFIG_IB=y
+          CONFIG_PACKAGE_openwisp-config=y
+          CONFIG_PACKAGE_openwisp-monitoring=y
+          EOF
+          make defconfig
+
+      - name: Wipe stale host-tool build state
+        working-directory: openwrt-src
+        # After Seed target config, not earlier: `make defconfig` on the bare
+        # host builds staging_dir/host/bin/mkhash for this config; the later
+        # containerized build would otherwise reuse that glibc-incompatible
+        # binary. See build-rbs40v.yml / build-whw03.yml.
+        run: podman unshare rm -rf staging_dir build_dir bin
+
+      - name: Download sources
+        working-directory: openwrt-src
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make download -j"$(nproc)" || {
+              echo "::group::Verbose re-run (make -j1 V=s download)"; make -j1 V=s download; exit 1; }'
+
+      - name: Build (make world)
+        working-directory: openwrt-src
+        # Wrapped in the buildworker container so host tools match its glibc
+        # (2.31), not guinevere's bare 2.38+ -- see build-rbs40v.yml.
+        run: |
+          podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
+            -v "$(pwd):/workdir" -w /workdir \
+            ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
+            bash -c 'make -j"$(nproc)" world || {
+              echo "::group::Verbose re-run (make -j1 V=s world)"; make -j1 V=s world; exit 1; }'
+
+      - name: Publish downloads-tree artifacts
+        working-directory: openwrt-src
+        run: |
+          set -euo pipefail
+          TREE=/srv/asu-downloads
+          T=alpine/checkpoint
+          ARCH=arm_cortex-a15_neon-vfpv4
+          OUT="$TREE/l72w/targets/$T"
+          mkdir -p "$OUT"
+          cp -v bin/targets/$T/openwrt-imagebuilder-*.tar.* "$OUT"/
+          rm -rf "$OUT/packages"; cp -rv bin/targets/$T/packages "$OUT"/
+          cp -v bin/targets/$T/profiles.json "$OUT"/
+
+          # Per-arch feed packages (openwisp-config/owut etc. build into
+          # bin/packages/<arch>/, not bin/targets/.../packages) -- without
+          # this, owut reports base packages "missing to-version". Plus the
+          # per-arch feeds.conf that ASU's json_v1_arch_index needs.
+          ARCH_OUT="$TREE/l72w/packages/$ARCH"
+          rm -rf "$ARCH_OUT"; mkdir -p "$ARCH_OUT"
+          cp -rv bin/packages/$ARCH/. "$ARCH_OUT"/
+          for feed_dir in "$ARCH_OUT"/*/; do
+            fn=$(basename "$feed_dir"); [ -f "$feed_dir/index.json" ] && echo "src-git $fn generated"
+          done > "$ARCH_OUT/feeds.conf"
+
+          cd "$OUT"
+          sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
+          gpg --batch --yes --pinentry-mode loopback \
+            --local-user 21CF087E3594E01D440D5D6E5FB9EC71BB20CCAF \
+            --detach-sign --armor --output sha256sums.asc sha256sums
+          echo "Published:"; ls -la "$OUT"
+
+          # Dedicated path "l72w" -- nothing else shares it, so a plain
+          # overwrite is fine (unlike the shared snapshots/.targets.json).
+          echo '{"alpine/checkpoint": "arm_cortex-a15_neon-vfpv4"}' > "$TREE/l72w/.targets.json"
+
+      - name: Build custom ImageBuilder image
+        working-directory: docker-imagebuilder-src/docker/imagebuilder
+        run: |
+          podman build \
+            --build-arg TARGET=alpine/checkpoint \
+            --build-arg FILE_HOST=http://host.containers.internal \
+            --build-arg VERSION_PATH=l72w \
+            --build-arg RUN_SETUP=1 \
+            -t ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-openwrt-L72W \
+            -f Containerfile .
+
+      - name: Push ImageBuilder image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-openwrt-L72W
+
+      - name: Prune dangling podman images
+        if: always()
+        run: podman image prune -f
