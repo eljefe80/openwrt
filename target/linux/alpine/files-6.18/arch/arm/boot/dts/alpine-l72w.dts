@@ -1,0 +1,381 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+//
+// Check Point L-72W (1470/1490 WiFi SMB appliance).
+// SoC: Annapurna Labs Alpine AL31400, board-cfg id "alpine_db (S2-L72)".
+//
+// Written from a real boot-time device tree pulled off the appliance's
+// own flash (Check Point's proprietary legacy DT schema, kernel 3.10)
+// translated into the mainline al_eth binding used by the closed/
+// unmerged openwrt/openwrt PR #23189 (MikroTik RB1100AHx4, same AL31400
+// SoC family).
+//
+// Confirmed working on real hardware: all 4 internal Ethernet MACs,
+// both WiFi radios (via external PCIe root ports), the AL crypto/DMA
+// offload engines, the DMZ-copper port speed LEDs, NAND sysupgrade,
+// and booting from NAND via the stock bootloader.
+//
+// Port map (19 physical Ethernet ports, fed by only 4 internal MACs):
+// 16 LAN ports behind an unidentified switch ASIC (eth0/eth2, SGMII
+// 2.5G), 1 WAN port and 2 DMZ ports (copper + SFP) as standalone MACs
+// (eth1 has a real external PHY; eth3 is fixed-link). eth1 = DMZ
+// copper is the only port with a confirmed netdev-to-physical-port
+// mapping so far.
+//
+// Not present on this unit: PoE (present on some other L-series
+// SKUs, gated by a `hardware_capabilities` U-Boot env bitmask), any
+// relay/button/beeper. USB (Renesas xHCI on pcie_external2) trains
+// and enumerates but crashes the kernel on first BAR0 access; not
+// wired up here, see reference_bored_list.md.
+
+/dts-v1/;
+
+#include "alpine.dtsi"
+
+/ {
+	model = "Check Point L-72W";
+	compatible = "checkpoint,l72w", "annapurna-labs,alpine";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	memory {
+		device_type = "memory";
+		/* 2GiB per the legacy DT / boot log ("DRAM: 2 GiB") */
+		reg = <0x0 0x0 0x0 0x80000000>;
+	};
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&nand {
+	status = "okay";
+	/* Real partition table, from the legacy DT's own nand-flash node
+	 * (matches /proc/mtd on the live device exactly). Kept as raw MTD
+	 * partitions here rather than assuming UBI boundaries — ubifs/
+	 * ubifs-2/storage are UBI volumes ON TOP of these, not something
+	 * to declare as fixed-partitions sub-layout without re-checking.
+	 */
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "al_boot";
+			reg = <0x0 0x300000>;
+		};
+		partition@200000 {
+			label = "device_tree";
+			reg = <0x200000 0x100000>;
+		};
+		partition@380000 {
+			label = "linux_kernel";
+			reg = <0x380000 0x1000000>;
+		};
+		partition@1380000 {
+			label = "ubifs";
+			reg = <0x1380000 0xdc00000>;
+		};
+		partition@ef80000 {
+			label = "linux_kernel2";
+			reg = <0xef80000 0x1000000>;
+		};
+		partition@ff80000 {
+			label = "ubifs-2";
+			reg = <0xff80000 0xdc00000>;
+		};
+		partition@1db80000 {
+			label = "default-sw";
+			reg = <0x1db80000 0xc400000>;
+		};
+		partition@29f80000 {
+			label = "logs";
+			reg = <0x29f80000 0x40000000>;
+		};
+		partition@69f80000 {
+			label = "preset";
+			reg = <0x69f80000 0x100000>;
+		};
+		partition@6a080000 {
+			label = "adsl";
+			reg = <0x6a080000 0x100000>;
+		};
+		partition@6a180000 {
+			label = "storage";
+			reg = <0x6a180000 0x15e80000>;
+		};
+	};
+};
+
+/* port0: SGMII-2.5G. Real MAC (00:1c:7f:73:8e:6c) comes from
+ * bootloader-programmed scratch registers, read by al_eth.c before
+ * these al,* properties are ever consulted -- media-type is kept for
+ * correctness but serdes-grp/lane are unverified/likely irrelevant.
+ */
+&eth0 {
+	status = "okay";
+	/* EXPERIMENT 2026-09-22: was <6> SGMII_2_5G, which was an assumption,
+	 * never verified. With al,an-disable the MAC is *forced* to that rate,
+	 * so if the switch's CPU-facing ports run plain 1G SGMII nothing
+	 * crosses even though both ends report link -- and every switch
+	 * register would still compare clean against stock, which is exactly
+	 * what we observe. Vendor firmware reports speed=1000 on this port.
+	 */
+	al,media-type = <3>; /* AL_ETH_BOARD_MEDIA_TYPE_SGMII (1G) */
+	al,serdes-grp = <0>;
+	al,serdes-lane = <0>;
+	al,an-disable;
+	al,dont-override-serdes;
+	al,no-link-management;	/* fixed SERDES link to the switch fabric */
+};
+
+/* legacy port1: RGMII with a real external PHY at MDIO addr 1.
+ * Also carries the switch-ASIC SMI bus (shared mdio_bus, addr 31).
+ * Override the dtsi default (1 MHz) to the only other enum value
+ * (2.5 MHz, AL_ETH_BOARD_MDIO_FREQ_2_5_MHZ) to test whether the
+ * switch chip's CtrlMgmt/page-select command sequence is being
+ * actively rejected due to clock speed.
+ */
+&eth1 {
+	status = "okay";
+	al,mdio-freq = <0>;
+	/* MUST be stated explicitly. The base .dtsi leaves media-type at
+	 * <6> (SGMII_2_5G) for this node, and now that al,media-type has
+	 * real override authority that stale default gets applied -- which
+	 * silently reconfigured this RGMII port as SGMII on 2026-09-22.
+	 * The PHY still reported "Link is Up - 1Gbps/Full" while the MAC
+	 * datapath was dead, so wget failed with EPERM and the port looked
+	 * healthy. The bootloader scratch register reports <1> here, which
+	 * is correct: this is the RGMII port with the external 88E1514.
+	 */
+	al,media-type = <1>; /* AL_ETH_BOARD_MEDIA_TYPE_RGMII */
+};
+
+/* port2: SGMII-2.5G, same scratch-register MAC mechanism as eth0. */
+&eth2 {
+	status = "okay";
+	al,media-type = <3>; /* see eth0: 1G SGMII, was <6> on assumption */
+	al,serdes-grp = <0>;
+	al,serdes-lane = <1>;
+	al,an-disable;
+	al,dont-override-serdes;
+	al,no-link-management;	/* fixed SERDES link to the switch fabric */
+};
+
+/* 4th real MAC (al_eth3 in U-Boot's own naming) -- RGMII, fixed-link
+ * 1000M/full, no external PHY. Check Point's own firmware never
+ * programs a factory MAC for this interface (al_eth.c doesn't read a
+ * devicetree "mac-address" property at all, only a hardware register
+ * U-Boot pre-programs), so it comes up with a random MAC -- assign
+ * one via UCI `option macaddr` if a stable address is needed.
+ */
+&eth3 {
+	status = "okay";
+};
+
+/* External PCIe root ports (Root-Complex mode) -- see alpine.dtsi.
+ * Both links train and both radios' kernel drivers bind cleanly:
+ * 168c:0033 (AR9580) via ath9k, 168c:003c (QCA988x) via ath10k +
+ * community qca988x board data (no OEM calibration available).
+ */
+&pcie_external0 {
+	status = "okay";
+};
+
+&pcie_external1 {
+	status = "okay";
+};
+
+/* i2c-pld controller at 0xfd880000, carrying 4 GPIO expanders. Only
+ * the 2 populated with real, wired lines are declared here (a 3rd,
+ * tca9555 @ 0x22, is fully unclaimed; a 4th, tca9555 @ 0x24, has 3
+ * unlabeled always-input lines of unknown purpose).
+ */
+&i2c0 {
+	status = "okay";
+
+	gpio_exp_dmz: gpio@21 {
+		compatible = "nxp,pcf8575";
+		reg = <0x21>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names =
+			"DMZ_COPPER_100M_LED", "DMZ_COPPER_1000M_LED",
+			"DMZ_FIBER_100M_LED", "DMZ_FIBER_1000M_LED",
+			"S2_WAN_100M_LED", "", "", "",
+			"", "", "", "", "", "", "", "";
+	};
+
+	gpio_exp_lan: gpio@20 {
+		compatible = "nxp,pcf8575";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names =
+			"P0_100M_LED", "P1_100M_LED", "P2_100M_LED", "P3_100M_LED",
+			"P4_100M_LED", "P5_100M_LED", "P6_100M_LED", "P7_100M_LED",
+			"P8_100M_LED", "P9_100M_LED", "P10_100M_LED", "P11_100M_LED",
+			"P12_100M_LED", "P13_100M_LED", "P14_100M_LED", "P15_100M_LED";
+	};
+};
+
+/* Only the DMZ-copper port (eth1) has a confirmed netdev-to-LED
+ * mapping so far, so it's the only pair wired here. The DT's own
+ * `linux,default-trigger = "netdev"` pre-selects the trigger type but
+ * doesn't bind a device (this kernel's ledtrig-netdev only auto-binds
+ * via a hw_control_get_device() callback a plain leds-gpio LED
+ * doesn't have) -- the actual device binding happens in
+ * base-files/etc/board.d/01_leds via ucidef_set_led_netdev.
+ *
+ * Check Point's own driver lights exactly one of the 100M/1000M lines
+ * at a time based on negotiated speed; Linux's netdev trigger doesn't
+ * discriminate by speed, so both light together on any link here.
+ *
+ * DMZ_FIBER_*, S2_WAN_100M_LED, and all 16 P*_100M_LED lines are real
+ * and controllable but have no entry yet -- those ports aren't
+ * identified to a specific MAC (DMZ-SFP/WAN) or have no driver at all
+ * yet (the 16 LAN ports, behind an unidentified switch ASIC).
+ */
+/ {
+	leds {
+		compatible = "gpio-leds";
+
+		led-dmz-copper-100m {
+			function = LED_FUNCTION_SPEED_LAN;
+			function-enumerator = <100>;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&gpio_exp_dmz 0 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "netdev";
+		};
+
+		led-dmz-copper-1000m {
+			function = LED_FUNCTION_SPEED_LAN;
+			function-enumerator = <1000>;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&gpio_exp_dmz 1 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "netdev";
+		};
+	};
+};
+
+/*
+ * The 16 LAN ports, behind the Marvell Prestera 98DX3234 fabric. The fabric
+ * is reached through an SMI tunnel over the MDIO bus that al_eth brings up
+ * for eth0, at PHY address 31; see docs/98dx3234-l72w-specs.md section 3.
+ *
+ * This is deliberately not an mdio child node: al_eth creates that bus
+ * programmatically and it carries no of_node, so nothing in the devicetree
+ * can hang off it. The driver finds the bus by probing address 31 for the
+ * Marvell OUI and defers until it answers.
+ */
+/ {
+	prestera: switch {
+		compatible = "checkpoint,l72w-prestera-98dx3234";
+		status = "okay";
+
+		/*
+		 * <tree index>. The index is not free to choose: the fabric
+		 * stamps its own device number into every DSA tag, and the
+		 * in-tree tagger resolves the ingress port with
+		 * dsa_conduit_find_user(dev, source_device, source_port).
+		 * Measured ingress tags read `d0 00 20 01`, so
+		 * source_device = 0xd0 & 0x1f = 16. With any other index the
+		 * lookup fails and every frame is dropped after being counted
+		 * on the conduit. It matches the egress side too: tag_dsa
+		 * builds byte 0 as (FROM_CPU << 6) | index, and 0x50 is the
+		 * value this fabric accepts (spec 10.2).
+		 */
+		dsa,member = <0 16>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				label = "lan1";
+			};
+			port@1 {
+				reg = <1>;
+				label = "lan2";
+			};
+			port@2 {
+				reg = <2>;
+				label = "lan3";
+			};
+			port@3 {
+				reg = <3>;
+				label = "lan4";
+			};
+			port@4 {
+				reg = <4>;
+				label = "lan5";
+			};
+			port@5 {
+				reg = <5>;
+				label = "lan6";
+			};
+			port@6 {
+				reg = <6>;
+				label = "lan7";
+			};
+			port@7 {
+				reg = <7>;
+				label = "lan8";
+			};
+			port@8 {
+				reg = <8>;
+				label = "lan9";
+			};
+			port@9 {
+				reg = <9>;
+				label = "lan10";
+			};
+			port@10 {
+				reg = <10>;
+				label = "lan11";
+			};
+			port@11 {
+				reg = <11>;
+				label = "lan12";
+			};
+			port@12 {
+				reg = <12>;
+				label = "lan13";
+			};
+			port@13 {
+				reg = <13>;
+				label = "lan14";
+			};
+			port@14 {
+				reg = <14>;
+				label = "lan15";
+			};
+			port@15 {
+				reg = <15>;
+				label = "lan16";
+			};
+			/*
+			 * CPU port. eth0 is one of the two SoC MACs wired to
+			 * the fabric; it must run 1G SGMII with link
+			 * management off, which is what the al,* properties
+			 * on &eth0 above arrange. No PHY exists on this
+			 * link, so the speed is fixed here rather than
+			 * negotiated.
+			 */
+			port@24 {
+				reg = <24>;
+				ethernet = <&eth0>;
+				phy-mode = "sgmii";
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+		};
+	};
+};

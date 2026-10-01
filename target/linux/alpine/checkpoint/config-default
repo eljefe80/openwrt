@@ -1,0 +1,87 @@
+CONFIG_MTD_SPI_NOR_USE_VARIABLE_ERASE=y
+CONFIG_MTD_SPLIT_MINOR_FW=y
+CONFIG_MTD_UBI=y
+CONFIG_MTD_UBI_BEB_LIMIT=20
+CONFIG_MTD_UBI_BLOCK=y
+CONFIG_MTD_UBI_FASTMAP=y
+CONFIG_MTD_UBI_NVMEM=y
+CONFIG_MTD_UBI_WL_THRESHOLD=4096
+CONFIG_UBIFS_FS=y
+CONFIG_UBIFS_FS_ADVANCED_COMPR=y
+# CONFIG_DETECT_HUNG_TASK_BLOCKER is not set
+# CONFIG_DEBUG_ALPINE_UART is not set
+CONFIG_DEBUG_ALPINE_UART0=y
+CONFIG_DEBUG_LL=y
+CONFIG_DEBUG_LL_INCLUDE="debug/8250.S"
+CONFIG_DEBUG_UNCOMPRESS=y
+CONFIG_EARLY_PRINTK=y
+CONFIG_SERIAL_EARLYCON=y
+# CONFIG_DEBUG_UART_FLOW_CONTROL is not set
+CONFIG_DEBUG_UART_PHYS=0xfd883000
+CONFIG_DEBUG_UART_VIRT=0xfd883000
+CONFIG_DEBUG_UART_8250_SHIFT=2
+CONFIG_DEBUG_UART_8250_WORD=y
+# al_crypto and al_dma are bare PCI devices on the internal PCIe bus
+# (1c36:0011, 1c36:0021), no DT node needed. No kmod-* package wraps
+# either symbol, so they're built-in here.
+CONFIG_CRYPTO_DEV_AL_CRYPTO=y
+CONFIG_CRYPTO_DEV_AL_CRYPTO_STATS=y
+CONFIG_AL_DMA=y
+CONFIG_AL_DMA_STATS=y
+# Netdev LED trigger for the DMZ-copper port LEDs (see alpine-l72w.dts).
+# No kmod-* package wraps this symbol either.
+CONFIG_LEDS_TRIGGER_NETDEV=y
+# Prestera 98DX3234 switch SMI transport -- real, ongoing driver work,
+# see project_l72w_openwrt.md. Not yet a real switch driver.
+# NET_VENDOR_MARVELL is explicitly disabled by the generic/target
+# baseline config (no other alpine-family board uses a real Marvell
+# vendor driver) -- must re-enable it explicitly or the whole `if
+# NET_VENDOR_MARVELL` block our option lives in stays closed and
+# CONFIG_PRESTERA_98DX3234_SMI silently vanishes from the final
+# .config instead of just failing to apply (confirmed live 2026-09-14
+# -- the driver's own init_module() never ran at all, not even its
+# "not found" failure message).
+CONFIG_NET_VENDOR_MARVELL=y
+# Built in, not =m. An earlier revision of this comment recorded that =y
+# "NEVER RAN AT ALL" -- that was when the driver announced itself from a
+# module_init/late_initcall and went hunting for its MDIO bus. It is now a
+# platform driver with an OF match against the `switch` node in
+# alpine-l72w.dts, so it binds through ordinary device/driver matching and
+# returns -EPROBE_DEFER until al_eth's bus answers at address 31. The old
+# initcall mystery does not apply to that path.
+#
+# It also has to be =y for the board config to mean anything: as =m with no
+# kmod package the .ko never reaches the image, so nothing loads it at boot
+# and the lan1..lan16 entries board.d writes into /etc/config/network name
+# devices that never appear.
+CONFIG_PRESTERA_98DX3234_SMI=y
+# The raw-register debugfs instrument. Must stay off in a shipped
+# image: it discovers the MDIO bus itself and takes its own lock, so
+# having it and the switch driver both active means two independent
+# users of one SMI tunnel. Build it as a module by hand when doing
+# register-level work, with the switch driver absent.
+# CONFIG_PRESTERA_98DX3234_DEBUG is not set
+# None of Check Point's stock boot paths (normal/debug/maintenance)
+# ever pass a `root=` kernel parameter, and they all load Check
+# Point's own legacy device tree rather than ours -- so a DT
+# chosen/bootargs-append fix would be a no-op here. Baking root= into
+# the kernel's own compiled cmdline (CONFIG_CMDLINE_EXTEND=y at the
+# target level) applies regardless of which DTB gets loaded.
+# ubi.mtd=ubifs auto-attaches the "ubifs" MTD partition's UBI device
+# at boot; root=/dev/ubiblock0_0 is the "rootfs" volume (id 0) on it.
+CONFIG_CMDLINE="console=ttyS0,115200 earlycon=uart8250,mmio32,0xfd883000 pci=pcie_bus_perf ubi.mtd=ubifs root=/dev/ubiblock0_0 rootfstype=squashfs ro"
+# al_eth RX bug (napi_gro_frags() called with no skb for packets over
+# small_copy_len) is fixed directly in files-6.18/.../al_eth.c instead
+# of switching allocation modes -- SKB mode doesn't even compile on
+# this kernel (skb_recycle()/skb_recycle_check() have no prototypes,
+# and it uses __get_cpu_var(), an API removed from mainline Linux long
+# ago -- that code path is bit-rotted, untouched since a much older
+# kernel). Staying on the target-level default (FRAG mode), which
+# builds and runs fine; see the source file's own comment for the
+# actual fix.
+# The 16 LAN jacks are driven by 2x Marvell 88E1685 octal PHYs, reached
+# through the switch's internal SMI master which prestera_98dx3234
+# exposes as an mii_bus. Enable the in-tree Marvell PHY driver so those
+# phy_devices get a driver that actually knows the part, instead of
+# falling back to the generic clause-22 driver.
+CONFIG_MARVELL_PHY=m

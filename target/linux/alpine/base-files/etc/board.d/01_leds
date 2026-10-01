@@ -1,0 +1,40 @@
+#
+# Copyright (c) 2011-2026 OpenWrt.org
+#
+
+. /lib/functions/uci-defaults.sh
+
+board_config_update
+
+board=$(board_name)
+
+case "$board" in
+checkpoint,l72w)
+	#
+	# Real hardware, confirmed live 2026-09-13 (see alpine-l72w.dts
+	# and project_l72w_openwrt.md): DMZ-copper port LEDs on an I2C
+	# GPIO expander, one line per link speed. Only DMZ-copper (eth1
+	# -- confirmed, the only MAC with Link Up on this cabled port)
+	# has a working netdev source right now, so it's the only pair
+	# wired here.
+	#
+	# The DTS's own `linux,default-trigger`/`trigger-sources`
+	# properties select the netdev trigger but DON'T bind a device
+	# name -- this kernel's ledtrig-netdev.c only auto-binds a
+	# device via a hw_control_get_device() callback (for LEDs
+	# natively driven by a PHY/MAC), which a plain leds-gpio LED
+	# doesn't have. ucidef_set_led_netdev is the real, portable way
+	# to set the device at boot (writes device_name via the normal
+	# UCI 'led' config + /etc/init.d/led, like every other OpenWrt
+	# board with netdev-triggered LEDs).
+	#
+	ucidef_set_led_netdev "dmz_copper_100m" "DMZ Copper 100M" \
+		"green:speed-lan-100" "eth1" "link"
+	ucidef_set_led_netdev "dmz_copper_1000m" "DMZ Copper 1000M" \
+		"green:speed-lan-1000" "eth1" "link"
+	;;
+esac
+
+board_config_flush
+
+exit 0
