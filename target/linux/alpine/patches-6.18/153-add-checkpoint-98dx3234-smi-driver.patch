@@ -1,0 +1,26 @@
+--- a/drivers/net/ethernet/marvell/Makefile
++++ b/drivers/net/ethernet/marvell/Makefile
+@@ -15,3 +15,4 @@ obj-y		+= octeon_ep/
+ obj-y		+= octeon_ep_vf/
+ obj-y		+= octeontx2/
+ obj-y		+= prestera/
++obj-y		+= checkpoint98dx3234/
+--- a/drivers/net/ethernet/marvell/Kconfig
++++ b/drivers/net/ethernet/marvell/Kconfig
+@@ -182,4 +182,16 @@ source "drivers/net/ethernet/marvell/oct
+ source "drivers/net/ethernet/marvell/octeon_ep_vf/Kconfig"
+ source "drivers/net/ethernet/marvell/prestera/Kconfig"
+ 
++config PRESTERA_98DX3234_SMI
++	tristate "Marvell Prestera 98DX3234 switch (Check Point L-72W)"
++	depends on PHYLIB
++	depends on NET_DSA
++	select NET_DSA_TAG_DSA
++	help
++	  DSA driver for the Marvell Prestera 98DX3234 switch fabric as
++	  wired on the Check Point L-72W, where the switch is reachable only
++	  over an SMI/MDIO sideband on one of the SoC's MDIO buses -- there
++	  is no PCI or MBUS path to it. Exposes the sixteen front-panel LAN
++	  ports as DSA user ports.
++
+ endif # NET_VENDOR_MARVELL
