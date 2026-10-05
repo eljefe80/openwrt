@@ -117,6 +117,10 @@ jobs:
           TREE=/srv/asu-downloads
           OUT="$TREE/w1700k/targets/airoha/an7581"
           mkdir -p "$OUT"
+          # Drop the previous ImageBuilder first: its filename carries the
+          # version, so a stale one would stay in sha256sums and setup.sh's
+          # grep would match two names.
+          rm -f "$OUT"/openwrt-imagebuilder-*.tar.*
           cp -v bin/targets/airoha/an7581/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
           cp -rv bin/targets/airoha/an7581/packages "$OUT"/

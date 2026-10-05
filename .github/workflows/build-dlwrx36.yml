@@ -124,6 +124,10 @@ jobs:
           TREE=/srv/asu-downloads
           OUT="$TREE/dlwrx36/targets/qualcommax/ipq807x"
           mkdir -p "$OUT"
+          # Drop the previous ImageBuilder first: its filename carries the
+          # version, so a stale one would stay in sha256sums and setup.sh's
+          # grep would match two names.
+          rm -f "$OUT"/openwrt-imagebuilder-*.tar.*
           cp -v bin/targets/qualcommax/ipq807x/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
           cp -rv bin/targets/qualcommax/ipq807x/packages "$OUT"/

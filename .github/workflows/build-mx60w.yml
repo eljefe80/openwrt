@@ -196,6 +196,10 @@ jobs:
           TREE=/srv/asu-downloads
           OUT="$TREE/mx60w/targets/apm821xx/nand"
           mkdir -p "$OUT"
+          # Drop the previous ImageBuilder first: its filename carries the
+          # version, so a stale one would stay in sha256sums and setup.sh's
+          # grep would match two names.
+          rm -f "$OUT"/openwrt-imagebuilder-*.tar.*
           cp -v bin/targets/apm821xx/nand/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
           cp -rv bin/targets/apm821xx/nand/packages "$OUT"/

@@ -132,6 +132,10 @@ jobs:
           TREE=/srv/asu-downloads
           OUT="$TREE/amplifi1/targets/ath79/generic"
           mkdir -p "$OUT"
+          # Drop the previous ImageBuilder first: its filename carries the
+          # version, so a stale one would stay in sha256sums and setup.sh's
+          # grep would match two names.
+          rm -f "$OUT"/openwrt-imagebuilder-*.tar.*
           cp -v bin/targets/ath79/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
           cp -rv bin/targets/ath79/generic/packages "$OUT"/
