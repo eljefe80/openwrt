@@ -120,6 +120,17 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
             -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
 
+      - name: Install fleet defaults (ASU, opensoho, owut cron)
+        working-directory: openwrt-src
+        # Into the generic base-files overlay, so it ships in base-files and
+        # reaches ASU-built (ImageBuilder) images on every target. Everything
+        # except the opensoho shared secret -- see ONBOARDING.md.
+        run: |
+          set -euo pipefail
+          mkdir -p target/linux/generic/base-files/etc/uci-defaults
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/fleet-defaults.sh \
+            -o target/linux/generic/base-files/etc/uci-defaults/97-fleet-defaults
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
