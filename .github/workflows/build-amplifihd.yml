@@ -69,6 +69,18 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Patch owut for per-device ASU branches
+        working-directory: openwrt-src
+        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
+        # release, so it rejects this device's "AMPLIFI1-SNAPSHOT" version
+        # ("appears valid ... removed from the server"). Carried as a package
+        # patch; the build fails loudly if a newer owut stops applying it.
+        run: |
+          set -euo pipefail
+          mkdir -p feeds/packages/utils/owut/patches
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
+            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
@@ -77,6 +89,11 @@ jobs:
           CONFIG_TARGET_ath79_generic=y
           CONFIG_TARGET_ath79_generic_DEVICE_ubnt_amplifi-router-hd=y
           CONFIG_IB=y
+          CONFIG_IMAGEOPT=y
+          CONFIG_VERSIONOPT=y
+          CONFIG_VERSION_NUMBER="AMPLIFI1-SNAPSHOT"
+          CONFIG_VERSION_REPO="http://10.203.16.45/amplifi1"
+          CONFIG_PACKAGE_owut=y
           CONFIG_PACKAGE_openwisp-config=y
           EOF
           make defconfig
@@ -113,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           TREE=/srv/asu-downloads
-          OUT="$TREE/snapshots/targets/ath79/generic"
+          OUT="$TREE/amplifi1/targets/ath79/generic"
           mkdir -p "$OUT"
           cp -v bin/targets/ath79/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
@@ -127,7 +144,7 @@ jobs:
           # owut check reports nearly every base package "missing to-
           # version" even though the target-specific tree published fine.
           # Same fix as every other device's publish step.
-          ARCH_OUT="$TREE/snapshots/packages/mips_24kc"
+          ARCH_OUT="$TREE/amplifi1/packages/mips_24kc"
           rm -rf "$ARCH_OUT"
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/mips_24kc/. "$ARCH_OUT"/
@@ -151,12 +168,9 @@ jobs:
           echo "Published:"
           ls -la "$OUT"
 
-          # Shared "snapshots" branch/path with WHW03/MX60W/DL-WRX36/Gemtek --
-          # merge our own target key in with jq, never overwrite theirs.
-          TARGETS_JSON="$TREE/snapshots/.targets.json"
-          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
-          jq '. + {"ath79/generic": "mips_24kc"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
-          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+          # Own dedicated "amplifi1" branch path -- nothing else shares it, so a
+          # plain overwrite is fine (was a jq merge into the shared snapshots/).
+          echo '{"ath79/generic": "mips_24kc"}' > "$TREE/amplifi1/.targets.json"
 
       - name: Build custom ImageBuilder image
         working-directory: docker-imagebuilder-src/docker/imagebuilder
@@ -164,15 +178,15 @@ jobs:
           podman build \
             --build-arg TARGET=ath79/generic \
             --build-arg FILE_HOST=http://10.203.16.45 \
-            --build-arg VERSION_PATH=snapshots \
+            --build-arg VERSION_PATH=amplifi1 \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:ath79-generic-master \
+            -t ghcr.io/eljefe80/imagebuilder:ath79-generic-openwrt-AMPLIFI1 \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:ath79-generic-master
+          podman push ghcr.io/eljefe80/imagebuilder:ath79-generic-openwrt-AMPLIFI1
 
       - name: Prune dangling podman images
         if: always()

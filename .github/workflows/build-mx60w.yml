@@ -108,6 +108,18 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Patch owut for per-device ASU branches
+        working-directory: openwrt-src
+        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
+        # release, so it rejects this device's "MX60W-SNAPSHOT" version
+        # ("appears valid ... removed from the server"). Carried as a package
+        # patch; the build fails loudly if a newer owut stops applying it.
+        run: |
+          set -euo pipefail
+          mkdir -p feeds/packages/utils/owut/patches
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
+            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
@@ -116,6 +128,10 @@ jobs:
           CONFIG_TARGET_apm821xx_nand=y
           CONFIG_TARGET_apm821xx_nand_DEVICE_meraki_mx60=y
           CONFIG_IB=y
+          CONFIG_IMAGEOPT=y
+          CONFIG_VERSIONOPT=y
+          CONFIG_VERSION_NUMBER="MX60W-SNAPSHOT"
+          CONFIG_VERSION_REPO="http://10.203.16.45/mx60w"
           CONFIG_PACKAGE_openwisp-config=y
           CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
@@ -178,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           TREE=/srv/asu-downloads
-          OUT="$TREE/snapshots/targets/apm821xx/nand"
+          OUT="$TREE/mx60w/targets/apm821xx/nand"
           mkdir -p "$OUT"
           cp -v bin/targets/apm821xx/nand/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
@@ -197,10 +213,8 @@ jobs:
           # check` reports nearly every base package as "missing to-version"
           # even though the target-specific dir published fine (confirmed:
           # this is exactly what MX60W's real device hit 2026-09-17).
-          # Shared "snapshots" tree with WHW03/RBS40V -- those are a
-          # different arch (ipq40xx/ARM vs apm821xx/powerpc), so scoping the
-          # rm -rf to just this arch's own subdir can't clobber theirs.
-          ARCH_OUT="$TREE/snapshots/packages/powerpc_464fp"
+          # Own "mx60w" path, so this rm -rf can't clobber any other device.
+          ARCH_OUT="$TREE/mx60w/packages/powerpc_464fp"
           rm -rf "$ARCH_OUT"
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/powerpc_464fp/. "$ARCH_OUT"/
@@ -238,13 +252,9 @@ jobs:
           echo "Published:"
           ls -la "$OUT"
 
-          # Shared "snapshots" branch/path with WHW03 -- merge our own
-          # target key in with jq, never overwrite (WHW03's ipq40xx/generic
-          # entry must survive this).
-          TARGETS_JSON="$TREE/snapshots/.targets.json"
-          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
-          jq '. + {"apm821xx/nand": "powerpc_464fp"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
-          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+          # Own dedicated "mx60w" branch path -- nothing else shares it, so a
+          # plain overwrite is fine (was a jq merge into the shared snapshots/).
+          echo '{"apm821xx/nand": "powerpc_464fp"}' > "$TREE/mx60w/.targets.json"
 
       - name: Build custom ImageBuilder image
         working-directory: openwrt-src/docker/imagebuilder
@@ -252,15 +262,15 @@ jobs:
           podman build \
             --build-arg TARGET=apm821xx/nand \
             --build-arg FILE_HOST=http://host.containers.internal \
-            --build-arg VERSION_PATH=snapshots \
+            --build-arg VERSION_PATH=mx60w \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:apm821xx-nand-master \
+            -t ghcr.io/eljefe80/imagebuilder:apm821xx-nand-openwrt-MX60W \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:apm821xx-nand-master
+          podman push ghcr.io/eljefe80/imagebuilder:apm821xx-nand-openwrt-MX60W
 
       - name: Prune dangling podman images
         # --pull=always above means every run leaves the previous

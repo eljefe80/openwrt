@@ -80,6 +80,18 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Patch owut for per-device ASU branches
+        working-directory: openwrt-src
+        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
+        # release, so it rejects this device's "L72W-SNAPSHOT" version
+        # ("appears valid ... removed from the server"). Carried as a package
+        # patch; the build fails loudly if a newer owut stops applying it.
+        run: |
+          set -euo pipefail
+          mkdir -p feeds/packages/utils/owut/patches
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
+            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
@@ -88,6 +100,10 @@ jobs:
           CONFIG_TARGET_alpine_checkpoint=y
           CONFIG_TARGET_alpine_checkpoint_DEVICE_checkpoint_l72w=y
           CONFIG_IB=y
+          CONFIG_IMAGEOPT=y
+          CONFIG_VERSIONOPT=y
+          CONFIG_VERSION_NUMBER="L72W-SNAPSHOT"
+          CONFIG_VERSION_REPO="http://10.203.16.45/l72w"
           CONFIG_PACKAGE_openwisp-config=y
           CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
