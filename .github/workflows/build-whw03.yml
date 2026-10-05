@@ -108,6 +108,29 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Patch owut for per-device ASU branches
+        working-directory: openwrt-src
+        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
+        # release, so it rejects this device's "WHW03-SNAPSHOT" version
+        # ("appears valid ... removed from the server"). Carried as a package
+        # patch; the build fails loudly if a newer owut stops applying it.
+        run: |
+          set -euo pipefail
+          mkdir -p feeds/packages/utils/owut/patches
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
+            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
+
+      - name: Install fleet defaults (ASU, opensoho, owut cron)
+        working-directory: openwrt-src
+        # Into the generic base-files overlay, so it ships in base-files and
+        # reaches ASU-built (ImageBuilder) images on every target. Everything
+        # except the opensoho shared secret -- see ONBOARDING.md.
+        run: |
+          set -euo pipefail
+          mkdir -p target/linux/generic/base-files/etc/uci-defaults
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/fleet-defaults.sh \
+            -o target/linux/generic/base-files/etc/uci-defaults/97-fleet-defaults
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
@@ -115,6 +138,10 @@ jobs:
           CONFIG_TARGET_ipq40xx=y
           CONFIG_TARGET_ipq40xx_generic=y
           CONFIG_IB=y
+          CONFIG_IMAGEOPT=y
+          CONFIG_VERSIONOPT=y
+          CONFIG_VERSION_NUMBER="WHW03-SNAPSHOT"
+          CONFIG_VERSION_REPO="http://10.203.16.45/whw03"
           CONFIG_PACKAGE_openwisp-config=y
           CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
@@ -215,8 +242,12 @@ jobs:
         run: |
           set -euo pipefail
           TREE=/srv/asu-downloads
-          OUT="$TREE/snapshots/targets/ipq40xx/generic"
+          OUT="$TREE/whw03/targets/ipq40xx/generic"
           mkdir -p "$OUT"
+          # Drop the previous ImageBuilder first: its filename carries the
+          # version, so a stale one would stay in sha256sums and setup.sh's
+          # grep would match two names.
+          rm -f "$OUT"/openwrt-imagebuilder-*.tar.*
           cp -v bin/targets/ipq40xx/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
           cp -rv bin/targets/ipq40xx/generic/packages "$OUT"/
@@ -239,13 +270,9 @@ jobs:
           #      + util.py's parse_feeds_conf): without it, ASU's feed list
           #      is empty and it never looks inside any of them regardless
           #      of their real content.
-          # Shared "snapshots" tree with MX60W -- different arch
-          # (apm821xx/powerpc vs ipq40xx/ARM), so scoping to this arch's own
-          # subdir can't clobber it. RBS40V uses this same arch
-          # (arm_cortex-a7_neon-vfpv4) but publishes to its own separate
-          # "rbs40v" branch/path, not "snapshots" -- no collision there
-          # either.
-          ARCH_OUT="$TREE/snapshots/packages/arm_cortex-a7_neon-vfpv4"
+          # Own "whw03" path; RBS40V shares this arch but publishes under
+          # "rbs40v", so there's no collision.
+          ARCH_OUT="$TREE/whw03/packages/arm_cortex-a7_neon-vfpv4"
           rm -rf "$ARCH_OUT"
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/arm_cortex-a7_neon-vfpv4/. "$ARCH_OUT"/
@@ -286,10 +313,9 @@ jobs:
           echo "Published:"
           ls -la "$OUT"
 
-          TARGETS_JSON="$TREE/snapshots/.targets.json"
-          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
-          jq '. + {"ipq40xx/generic": "arm_cortex-a7_neon-vfpv4"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
-          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
+          # Own dedicated "whw03" branch path -- nothing else shares it, so a
+          # plain overwrite is fine (was a jq merge into the shared snapshots/).
+          echo '{"ipq40xx/generic": "arm_cortex-a7_neon-vfpv4"}' > "$TREE/whw03/.targets.json"
 
           [ -f "$TREE/.versions.json" ] || cat > "$TREE/.versions.json" <<'JSONEOF'
           {"stable_version": "", "oldstable_version": "", "upcoming_version": "", "versions_list": []}
@@ -301,15 +327,15 @@ jobs:
           podman build \
             --build-arg TARGET=ipq40xx/generic \
             --build-arg FILE_HOST=http://host.containers.internal \
-            --build-arg VERSION_PATH=snapshots \
+            --build-arg VERSION_PATH=whw03 \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-master \
+            -t ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-openwrt-WHW03 \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-master
+          podman push ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-openwrt-WHW03
 
       - name: Prune dangling podman images
         # --pull=always above means every run leaves the previous
