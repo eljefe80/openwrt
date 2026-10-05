@@ -112,6 +112,29 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Patch owut for per-device ASU branches
+        working-directory: openwrt-src
+        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
+        # release, so it rejects this device's "WB300-SNAPSHOT" version
+        # ("appears valid ... removed from the server"). Carried as a package
+        # patch; the build fails loudly if a newer owut stops applying it.
+        run: |
+          set -euo pipefail
+          mkdir -p feeds/packages/utils/owut/patches
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
+            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
+
+      - name: Install fleet defaults (ASU, opensoho, owut cron)
+        working-directory: openwrt-src
+        # Into the generic base-files overlay, so it ships in base-files and
+        # reaches ASU-built (ImageBuilder) images on every target. Everything
+        # except the opensoho shared secret -- see ONBOARDING.md.
+        run: |
+          set -euo pipefail
+          mkdir -p target/linux/generic/base-files/etc/uci-defaults
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/fleet-defaults.sh \
+            -o target/linux/generic/base-files/etc/uci-defaults/97-fleet-defaults
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
@@ -143,6 +166,10 @@ jobs:
           CONFIG_TARGET_DEVICE_lpc32xx_generic_DEVICE_snapav_wattbox-wb300vb=y
           CONFIG_TARGET_DEVICE_lpc32xx_generic_DEVICE_snapav_wattbox-wb300vb-openwisp-feed=y
           CONFIG_IB=y
+          CONFIG_IMAGEOPT=y
+          CONFIG_VERSIONOPT=y
+          CONFIG_VERSION_NUMBER="WB300-SNAPSHOT"
+          CONFIG_VERSION_REPO="http://10.203.16.45/wattbox"
           CONFIG_PACKAGE_wbctl=y
           CONFIG_TARGET_ROOTFS_INITRAMFS=y
           # wb-picwdt is now a real kernel watchdog driver (CONFIG_WB_PICWDT,
@@ -219,6 +246,10 @@ jobs:
           TREE=/srv/asu-downloads
           OUT="$TREE/wattbox/targets/lpc32xx/generic"
           mkdir -p "$OUT"
+          # Drop the previous ImageBuilder first: its filename carries the
+          # version, so a stale one would stay in sha256sums and setup.sh's
+          # grep would match two names.
+          rm -f "$OUT"/openwrt-imagebuilder-*.tar.*
           cp -v bin/targets/lpc32xx/generic/openwrt-imagebuilder-*.tar.* "$OUT"/
           rm -rf "$OUT/packages"
           cp -rv bin/targets/lpc32xx/generic/packages "$OUT"/
@@ -275,13 +306,13 @@ jobs:
             --build-arg FILE_HOST=http://host.containers.internal \
             --build-arg VERSION_PATH=wattbox \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-openwrt-WATTBOX \
+            -t ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-openwrt-WB300 \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-openwrt-WATTBOX
+          podman push ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-openwrt-WB300
 
       - name: Prune dangling podman images
         # --pull=always above means every run leaves the previous
