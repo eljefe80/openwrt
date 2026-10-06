@@ -88,6 +88,10 @@ jobs:
           repository: eljefe80/openwrt
           ref: ipq40xx-fleet
           path: openwrt-src
+          # Full history: scripts/getver.sh counts commits for the revision
+          # (rNNNNN). A shallow clone gives r0 on every build, so owut can't
+          # tell builds apart and reports "no changes".
+          fetch-depth: 0
 
       - name: Login to ghcr.io (for pulls, not just the later push)
         # Anonymous pulls of ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21
