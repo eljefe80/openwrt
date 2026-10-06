@@ -56,6 +56,10 @@ jobs:
           repository: eljefe80/openwrt
           ref: checkpoint-l72w
           path: openwrt-src
+          # Full history: scripts/getver.sh counts commits for the revision
+          # (rNNNNN). A shallow clone gives r0 on every build, so owut can't
+          # tell builds apart and reports "no changes".
+          fetch-depth: 0
 
       - name: Login to ghcr.io (for pulls, not just the later push)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
