@@ -14,10 +14,9 @@ name: ASU build - Check Point L-72W
 #
 # ASU facts (see opensoho-asu-stack TARGETS.md + CI.md):
 #   target/subtarget alpine/checkpoint, profile checkpoint_l72w,
-#   arch arm_cortex-a15_neon-vfpv4, dedicated branch path "l72w",
-#   ASU branch key "L72W" (MUST contain a digit -- purely-alphabetic names
-#   hang owut), request version "L72W-SNAPSHOT",
-#   container tag ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-openwrt-L72W.
+#   arch arm_cortex-a15_neon-vfpv4, shared ASU branch SNAPSHOT (path
+#   "snapshots"), request version "SNAPSHOT",
+#   container tag ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-master.
 #
 # No external/vendored companion package (unlike RBS40V's led-ring-mqtt).
 # No custom FIT/mkits script, so no host device-tree-compiler needed.
@@ -80,18 +79,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Patch owut for per-device ASU branches
-        working-directory: openwrt-src
-        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
-        # release, so it rejects this device's "L72W-SNAPSHOT" version
-        # ("appears valid ... removed from the server"). Carried as a package
-        # patch; the build fails loudly if a newer owut stops applying it.
-        run: |
-          set -euo pipefail
-          mkdir -p feeds/packages/utils/owut/patches
-          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
-            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
-
       - name: Install fleet defaults (ASU, opensoho, owut cron)
         working-directory: openwrt-src
         # Into the generic base-files overlay, so it ships in base-files and
@@ -113,8 +100,7 @@ jobs:
           CONFIG_IB=y
           CONFIG_IMAGEOPT=y
           CONFIG_VERSIONOPT=y
-          CONFIG_VERSION_NUMBER="L72W-SNAPSHOT"
-          CONFIG_VERSION_REPO="http://10.203.16.45/l72w"
+          CONFIG_VERSION_REPO="http://10.203.16.45/snapshots"
           CONFIG_PACKAGE_openwisp-config=y
           CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
@@ -155,7 +141,7 @@ jobs:
           TREE=/srv/asu-downloads
           T=alpine/checkpoint
           ARCH=arm_cortex-a15_neon-vfpv4
-          OUT="$TREE/l72w/targets/$T"
+          OUT="$TREE/snapshots/targets/$T"
           mkdir -p "$OUT"
           # Drop the previous ImageBuilder first: its filename carries the
           # version, so a stale one would stay in sha256sums and setup.sh's
@@ -169,7 +155,7 @@ jobs:
           # bin/packages/<arch>/, not bin/targets/.../packages) -- without
           # this, owut reports base packages "missing to-version". Plus the
           # per-arch feeds.conf that ASU's json_v1_arch_index needs.
-          ARCH_OUT="$TREE/l72w/packages/$ARCH"
+          ARCH_OUT="$TREE/snapshots/packages/$ARCH"
           rm -rf "$ARCH_OUT"; mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/$ARCH/. "$ARCH_OUT"/
           for feed_dir in "$ARCH_OUT"/*/; do
@@ -183,31 +169,34 @@ jobs:
             --detach-sign --armor --output sha256sums.asc sha256sums
           echo "Published:"; ls -la "$OUT"
 
-          # Dedicated path "l72w" -- nothing else shares it, so a plain
-          # overwrite is fine (unlike the shared snapshots/.targets.json).
-          echo '{"alpine/checkpoint": "arm_cortex-a15_neon-vfpv4"}' > "$TREE/l72w/.targets.json"
+          # Shared "snapshots" branch/path -- merge our own target key in with
+          # jq, never overwrite the other devices' entries.
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"alpine/checkpoint": "arm_cortex-a15_neon-vfpv4"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
 
       - name: Build custom ImageBuilder image
         working-directory: docker-imagebuilder-src/docker/imagebuilder
         # FILE_HOST is guinevere's explicit VLAN16 downloads IP (10.203.16.45),
         # the value the working build-amplifihd.yml uses -- NOT
         # host.containers.internal, which was refused from the build container
-        # on the first run. --no-cache so this run's build-args (VERSION_PATH=l72w)
+        # on the first run. --no-cache so this run's build-args (VERSION_PATH=snapshots)
         # actually apply instead of reusing another device's cached ARG/ENV layers
         # (the first run's log showed stale "Using cache" on FILE_HOST/VERSION_PATH).
         run: |
           podman build --no-cache \
             --build-arg TARGET=alpine/checkpoint \
             --build-arg FILE_HOST=http://10.203.16.45 \
-            --build-arg VERSION_PATH=l72w \
+            --build-arg VERSION_PATH=snapshots \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-openwrt-L72W \
+            -t ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-master \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-openwrt-L72W
+          podman push ghcr.io/eljefe80/imagebuilder:alpine-checkpoint-master
 
       - name: Prune dangling podman images
         if: always()

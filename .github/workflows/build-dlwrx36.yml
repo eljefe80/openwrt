@@ -61,18 +61,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Patch owut for per-device ASU branches
-        working-directory: openwrt-src
-        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
-        # release, so it rejects this device's "DLWRX36-SNAPSHOT" version
-        # ("appears valid ... removed from the server"). Carried as a package
-        # patch; the build fails loudly if a newer owut stops applying it.
-        run: |
-          set -euo pipefail
-          mkdir -p feeds/packages/utils/owut/patches
-          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
-            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
-
       - name: Install fleet defaults (ASU, opensoho, owut cron)
         working-directory: openwrt-src
         # Into the generic base-files overlay, so it ships in base-files and
@@ -94,8 +82,7 @@ jobs:
           CONFIG_IB=y
           CONFIG_IMAGEOPT=y
           CONFIG_VERSIONOPT=y
-          CONFIG_VERSION_NUMBER="DLWRX36-SNAPSHOT"
-          CONFIG_VERSION_REPO="http://10.203.16.45/dlwrx36"
+          CONFIG_VERSION_REPO="http://10.203.16.45/snapshots"
           CONFIG_PACKAGE_owut=y
           CONFIG_PACKAGE_openwisp-config=y
           EOF
@@ -133,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           TREE=/srv/asu-downloads
-          OUT="$TREE/dlwrx36/targets/qualcommax/ipq807x"
+          OUT="$TREE/snapshots/targets/qualcommax/ipq807x"
           mkdir -p "$OUT"
           # Drop the previous ImageBuilder first: its filename carries the
           # version, so a stale one would stay in sha256sums and setup.sh's
@@ -152,10 +139,11 @@ jobs:
           # version" even though the target-specific tree published fine.
           # Same fix as build-mx60w.yml's own publish step.
           # qualcommax/ipq807x and airoha/an7581 share the arch string
-          # aarch64_cortex-a53, but each device now has its own branch path
-          # ("dlwrx36" vs "w1700k"), so the two builds no longer overwrite
-          # each other's arch feed.
-          ARCH_OUT="$TREE/dlwrx36/packages/aarch64_cortex-a53"
+          # aarch64_cortex-a53, so this and build-gemtekw1700k.yml both
+          # republish this same directory. Both build from openwrt master,
+          # which is how upstream buckets packages too (by arch, not target);
+          # device-specific kmods stay in each target's own dir.
+          ARCH_OUT="$TREE/snapshots/packages/aarch64_cortex-a53"
           rm -rf "$ARCH_OUT"
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/aarch64_cortex-a53/. "$ARCH_OUT"/
@@ -189,9 +177,12 @@ jobs:
           echo "Published:"
           ls -la "$OUT"
 
-          # Own dedicated "dlwrx36" branch path -- nothing else shares it, so a
-          # plain overwrite is fine (was a jq merge into the shared snapshots/).
-          echo '{"qualcommax/ipq807x": "aarch64_cortex-a53"}' > "$TREE/dlwrx36/.targets.json"
+          # Shared "snapshots" branch/path -- merge our own target key in with
+          # jq, never overwrite the other devices' entries.
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"qualcommax/ipq807x": "aarch64_cortex-a53"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
 
       - name: Build custom ImageBuilder image
         working-directory: docker-imagebuilder-src/docker/imagebuilder
@@ -199,15 +190,15 @@ jobs:
           podman build \
             --build-arg TARGET=qualcommax/ipq807x \
             --build-arg FILE_HOST=http://10.203.16.45 \
-            --build-arg VERSION_PATH=dlwrx36 \
+            --build-arg VERSION_PATH=snapshots \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:qualcommax-ipq807x-openwrt-DLWRX36 \
+            -t ghcr.io/eljefe80/imagebuilder:qualcommax-ipq807x-master \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:qualcommax-ipq807x-openwrt-DLWRX36
+          podman push ghcr.io/eljefe80/imagebuilder:qualcommax-ipq807x-master
 
       - name: Prune dangling podman images
         if: always()

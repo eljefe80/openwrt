@@ -57,18 +57,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Patch owut for per-device ASU branches
-        working-directory: openwrt-src
-        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
-        # release, so it rejects this device's "W1700K-SNAPSHOT" version
-        # ("appears valid ... removed from the server"). Carried as a package
-        # patch; the build fails loudly if a newer owut stops applying it.
-        run: |
-          set -euo pipefail
-          mkdir -p feeds/packages/utils/owut/patches
-          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
-            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
-
       - name: Install fleet defaults (ASU, opensoho, owut cron)
         working-directory: openwrt-src
         # Into the generic base-files overlay, so it ships in base-files and
@@ -90,8 +78,7 @@ jobs:
           CONFIG_IB=y
           CONFIG_IMAGEOPT=y
           CONFIG_VERSIONOPT=y
-          CONFIG_VERSION_NUMBER="W1700K-SNAPSHOT"
-          CONFIG_VERSION_REPO="http://10.203.16.45/w1700k"
+          CONFIG_VERSION_REPO="http://10.203.16.45/snapshots"
           CONFIG_PACKAGE_owut=y
           CONFIG_PACKAGE_openwisp-config=y
           EOF
@@ -126,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           TREE=/srv/asu-downloads
-          OUT="$TREE/w1700k/targets/airoha/an7581"
+          OUT="$TREE/snapshots/targets/airoha/an7581"
           mkdir -p "$OUT"
           # Drop the previous ImageBuilder first: its filename carries the
           # version, so a stale one would stay in sha256sums and setup.sh's
@@ -148,10 +135,9 @@ jobs:
           # arch_packages field) airoha/an7581 and qualcommax/ipq807x SHARE
           # the exact arch string aarch64_cortex-a53, despite this target's
           # own top-level Makefile saying ARCH:=arm -- verified against the
-          # real published snapshot, not assumed from that variable. It now
-          # lives under this device's own "w1700k" path, so build-dlwrx36.yml
-          # (same arch, "dlwrx36" path) no longer overwrites it.
-          ARCH_OUT="$TREE/w1700k/packages/aarch64_cortex-a53"
+          # real published snapshot, not assumed from that variable. Shared with
+          # build-dlwrx36.yml (same arch); see its comment.
+          ARCH_OUT="$TREE/snapshots/packages/aarch64_cortex-a53"
           rm -rf "$ARCH_OUT"
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/aarch64_cortex-a53/. "$ARCH_OUT"/
@@ -185,9 +171,12 @@ jobs:
           echo "Published:"
           ls -la "$OUT"
 
-          # Own dedicated "w1700k" branch path -- nothing else shares it, so a
-          # plain overwrite is fine (was a jq merge into the shared snapshots/).
-          echo '{"airoha/an7581": "aarch64_cortex-a53"}' > "$TREE/w1700k/.targets.json"
+          # Shared "snapshots" branch/path -- merge our own target key in with
+          # jq, never overwrite the other devices' entries.
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"airoha/an7581": "aarch64_cortex-a53"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
 
       - name: Build custom ImageBuilder image
         working-directory: docker-imagebuilder-src/docker/imagebuilder
@@ -195,15 +184,15 @@ jobs:
           podman build \
             --build-arg TARGET=airoha/an7581 \
             --build-arg FILE_HOST=http://10.203.16.45 \
-            --build-arg VERSION_PATH=w1700k \
+            --build-arg VERSION_PATH=snapshots \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:airoha-an7581-openwrt-W1700K \
+            -t ghcr.io/eljefe80/imagebuilder:airoha-an7581-master \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:airoha-an7581-openwrt-W1700K
+          podman push ghcr.io/eljefe80/imagebuilder:airoha-an7581-master
 
       - name: Prune dangling podman images
         if: always()
