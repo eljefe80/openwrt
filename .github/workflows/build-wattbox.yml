@@ -112,18 +112,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Patch owut for per-device ASU branches
-        working-directory: openwrt-src
-        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
-        # release, so it rejects this device's "WB300-SNAPSHOT" version
-        # ("appears valid ... removed from the server"). Carried as a package
-        # patch; the build fails loudly if a newer owut stops applying it.
-        run: |
-          set -euo pipefail
-          mkdir -p feeds/packages/utils/owut/patches
-          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
-            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
-
       - name: Install fleet defaults (ASU, opensoho, owut cron)
         working-directory: openwrt-src
         # Into the generic base-files overlay, so it ships in base-files and
@@ -168,8 +156,7 @@ jobs:
           CONFIG_IB=y
           CONFIG_IMAGEOPT=y
           CONFIG_VERSIONOPT=y
-          CONFIG_VERSION_NUMBER="WB300-SNAPSHOT"
-          CONFIG_VERSION_REPO="http://10.203.16.45/wattbox"
+          CONFIG_VERSION_REPO="http://10.203.16.45/snapshots"
           CONFIG_PACKAGE_wbctl=y
           CONFIG_TARGET_ROOTFS_INITRAMFS=y
           # wb-picwdt is now a real kernel watchdog driver (CONFIG_WB_PICWDT,
@@ -244,7 +231,7 @@ jobs:
         run: |
           set -euo pipefail
           TREE=/srv/asu-downloads
-          OUT="$TREE/wattbox/targets/lpc32xx/generic"
+          OUT="$TREE/snapshots/targets/lpc32xx/generic"
           mkdir -p "$OUT"
           # Drop the previous ImageBuilder first: its filename carries the
           # version, so a stale one would stay in sha256sums and setup.sh's
@@ -265,7 +252,7 @@ jobs:
           # over HTTP for those anyway -- but it DOES need this arch-level
           # tree reachable for a runtime `apk add openwisp-config` to find
           # anything at all, so publish it as its own sibling tree.
-          ARCH_OUT="$TREE/wattbox/packages/arm_arm926ej-s"
+          ARCH_OUT="$TREE/snapshots/packages/arm_arm926ej-s"
           rm -rf "$ARCH_OUT"
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/arm_arm926ej-s/. "$ARCH_OUT"/
@@ -295,24 +282,28 @@ jobs:
           echo "Published:"
           ls -la "$OUT"
 
-          # Own dedicated branch path ("wattbox") -- no merge needed.
-          echo '{"lpc32xx/generic": "arm_arm926ej-s"}' > "$TREE/wattbox/.targets.json"
+          # Shared "snapshots" branch/path -- merge our own target key in with
+          # jq, never overwrite the other devices' entries.
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"lpc32xx/generic": "arm_arm926ej-s"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
 
       - name: Build custom ImageBuilder image
         working-directory: openwrt-src/docker/imagebuilder
         run: |
           podman build \
             --build-arg TARGET=lpc32xx/generic \
-            --build-arg FILE_HOST=http://host.containers.internal \
-            --build-arg VERSION_PATH=wattbox \
+            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg VERSION_PATH=snapshots \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-openwrt-WB300 \
+            -t ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-master \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-openwrt-WB300
+          podman push ghcr.io/eljefe80/imagebuilder:lpc32xx-generic-master
 
       - name: Prune dangling podman images
         # --pull=always above means every run leaves the previous
