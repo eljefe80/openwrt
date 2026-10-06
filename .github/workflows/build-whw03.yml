@@ -1,6 +1,15 @@
-name: ASU build - WHW03
+name: ASU build - ipq40xx fleet (WHW03 + RBS40V)
 
-# UPDATED 2026-09-11: now checks out eljefe80/openwrt@whw03-mesh-packages, NOT
+# 2026-10-06: one ipq40xx/generic tree for every ipq40xx device in the fleet
+# (eljefe80/openwrt@ipq40xx-fleet = whw03-mesh-packages + RBS40V's source
+# commits). All devices share the plain SNAPSHOT ASU branch, so a target may
+# only be built from ONE tree -- two branches publishing ipq40xx/generic
+# would overwrite each other's ImageBuilder (ipq40xx-generic-master). This
+# replaces both build-whw03.yml@whw03-mesh-packages and
+# build-rbs40v.yml@rbs40v. File name kept so the existing workflow
+# registration (and `gh workflow run --ref ipq40xx-fleet`) keeps working.
+
+# UPDATED 2026-09-11 (history): checked out eljefe80/openwrt@whw03-mesh-packages, NOT
 # upstream openwrt/openwrt -- WHW03 needed its own fork branch the moment
 # mesh packages (dawn, umdns, owut, kmod-vxlan, ip-full/bridge,
 # wpad-mesh-mbedtls, luci-app-attendedsysupgrade) got baked into
@@ -73,11 +82,11 @@ jobs:
           done
           podman unshare rm -rf openwrt-src || sudo rm -rf openwrt-src
 
-      - name: Checkout eljefe80/openwrt (whw03-mesh-packages)
+      - name: Checkout eljefe80/openwrt (ipq40xx-fleet)
         uses: actions/checkout@v4
         with:
           repository: eljefe80/openwrt
-          ref: whw03-mesh-packages
+          ref: ipq40xx-fleet
           path: openwrt-src
 
       - name: Login to ghcr.io (for pulls, not just the later push)
@@ -90,6 +99,10 @@ jobs:
         # Authenticated pulls get a much higher limit; reuses the same
         # GITHUB_TOKEN the later push step already relies on.
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Clone led-ring-mqtt package
+        # RBS40V's companion package, cloned fresh each run (not vendored).
+        run: git clone --depth 1 https://github.com/eljefe80/led-ring-mqtt.git openwrt-src/package/led-ring-mqtt
+
       - name: Add openwisp-config feed
         working-directory: openwrt-src
         # For opensoho check-in. Real facts confirmed against the actual
@@ -107,18 +120,6 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: Patch owut for per-device ASU branches
-        working-directory: openwrt-src
-        # Stock owut's branch_of() only recognizes "SNAPSHOT" or a dotted
-        # release, so it rejects this device's "WHW03-SNAPSHOT" version
-        # ("appears valid ... removed from the server"). Carried as a package
-        # patch; the build fails loudly if a newer owut stops applying it.
-        run: |
-          set -euo pipefail
-          mkdir -p feeds/packages/utils/owut/patches
-          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/owut-custom-branches.patch \
-            -o feeds/packages/utils/owut/patches/900-custom-asu-branches.patch
 
       - name: Install fleet defaults (ASU, opensoho, owut cron)
         working-directory: openwrt-src
@@ -140,8 +141,7 @@ jobs:
           CONFIG_IB=y
           CONFIG_IMAGEOPT=y
           CONFIG_VERSIONOPT=y
-          CONFIG_VERSION_NUMBER="WHW03-SNAPSHOT"
-          CONFIG_VERSION_REPO="http://10.203.16.45/whw03"
+          CONFIG_VERSION_REPO="http://10.203.16.45/snapshots"
           CONFIG_PACKAGE_openwisp-config=y
           CONFIG_PACKAGE_openwisp-monitoring=y
           EOF
@@ -163,6 +163,9 @@ jobs:
           CONFIG_TARGET_MULTI_PROFILE=y
           CONFIG_TARGET_DEVICE_ipq40xx_generic_DEVICE_linksys_whw03v2=y
           CONFIG_TARGET_DEVICE_ipq40xx_generic_DEVICE_linksys_whw03=y
+          CONFIG_TARGET_DEVICE_ipq40xx_generic_DEVICE_netgear_rbs40v=y
+          CONFIG_TARGET_PER_DEVICE_ROOTFS=y
+          CONFIG_PACKAGE_led-ring-mqtt=y
           EOF
           make defconfig
 
@@ -235,14 +238,14 @@ jobs:
           podman run --rm --user 0:0 --entrypoint "" -e FORCE_UNSAFE_CONFIGURE=1 \
             -v "$(pwd):/workdir" -w /workdir \
             ghcr.io/openwrt/buildbot/buildworker-v3.11.8:v21 \
-            bash -c 'make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }'
+            bash -c 'apt-get update -qq && apt-get install -y -qq device-tree-compiler && { make -j"$(nproc)" world || { make -j1 V=s world; exit 1; }; }'
 
       - name: Publish downloads-tree artifacts
         working-directory: openwrt-src
         run: |
           set -euo pipefail
           TREE=/srv/asu-downloads
-          OUT="$TREE/whw03/targets/ipq40xx/generic"
+          OUT="$TREE/snapshots/targets/ipq40xx/generic"
           mkdir -p "$OUT"
           # Drop the previous ImageBuilder first: its filename carries the
           # version, so a stale one would stay in sha256sums and setup.sh's
@@ -270,9 +273,9 @@ jobs:
           #      + util.py's parse_feeds_conf): without it, ASU's feed list
           #      is empty and it never looks inside any of them regardless
           #      of their real content.
-          # Own "whw03" path; RBS40V shares this arch but publishes under
-          # "rbs40v", so there's no collision.
-          ARCH_OUT="$TREE/whw03/packages/arm_cortex-a7_neon-vfpv4"
+          # WHW03 and RBS40V are both built here, from this one tree, so
+          # their shared arch feed always comes from the same build.
+          ARCH_OUT="$TREE/snapshots/packages/arm_cortex-a7_neon-vfpv4"
           rm -rf "$ARCH_OUT"
           mkdir -p "$ARCH_OUT"
           cp -rv bin/packages/arm_cortex-a7_neon-vfpv4/. "$ARCH_OUT"/
@@ -313,9 +316,12 @@ jobs:
           echo "Published:"
           ls -la "$OUT"
 
-          # Own dedicated "whw03" branch path -- nothing else shares it, so a
-          # plain overwrite is fine (was a jq merge into the shared snapshots/).
-          echo '{"ipq40xx/generic": "arm_cortex-a7_neon-vfpv4"}' > "$TREE/whw03/.targets.json"
+          # Shared "snapshots" branch/path -- merge our own target key in with
+          # jq, never overwrite the other devices' entries.
+          TARGETS_JSON="$TREE/snapshots/.targets.json"
+          [ -f "$TARGETS_JSON" ] || echo '{}' > "$TARGETS_JSON"
+          jq '. + {"ipq40xx/generic": "arm_cortex-a7_neon-vfpv4"}' "$TARGETS_JSON" > "$TARGETS_JSON.tmp"
+          mv "$TARGETS_JSON.tmp" "$TARGETS_JSON"
 
           [ -f "$TREE/.versions.json" ] || cat > "$TREE/.versions.json" <<'JSONEOF'
           {"stable_version": "", "oldstable_version": "", "upcoming_version": "", "versions_list": []}
@@ -326,16 +332,16 @@ jobs:
         run: |
           podman build \
             --build-arg TARGET=ipq40xx/generic \
-            --build-arg FILE_HOST=http://host.containers.internal \
-            --build-arg VERSION_PATH=whw03 \
+            --build-arg FILE_HOST=http://10.203.16.45 \
+            --build-arg VERSION_PATH=snapshots \
             --build-arg RUN_SETUP=1 \
-            -t ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-openwrt-WHW03 \
+            -t ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-master \
             -f Containerfile .
 
       - name: Push ImageBuilder image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-openwrt-WHW03
+          podman push ghcr.io/eljefe80/imagebuilder:ipq40xx-generic-master
 
       - name: Prune dangling podman images
         # --pull=always above means every run leaves the previous
