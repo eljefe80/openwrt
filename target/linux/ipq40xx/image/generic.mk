@@ -1123,6 +1123,7 @@ define Device/netgear_rbs40v
 		ath10k-firmware-qca988x-ct kmod-usb-audio kmod-hid kmod-hid-generic \
 		kmod-input-evdev kmod-usb-hid kmod-bluetooth \
 		kmod-hci-uart bluez-libs bluez-utils \
+		audio-support input-support \
 		libpthread librt alsa-lib libncurses alsa-ucm-conf alsa-utils \
 		libusb-1.0 libatomic libudev-zero libevdev usbids usbutils \
 		kmod-ipq40xx-snd kmod-rbs40v-touchpad \
