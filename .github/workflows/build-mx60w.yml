@@ -123,6 +123,24 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/fleet-defaults.sh \
             -o target/linux/generic/base-files/etc/uci-defaults/97-fleet-defaults
 
+      - name: Install the fleet's persistent apk signing key
+        working-directory: openwrt-src
+        # Every build signs with the same key (generated once, kept in the
+        # runner's home), so all images and ImageBuilders trust it and the
+        # merged arch feeds can be re-signed (ci/publish-arch-feed.sh). Only
+        # the public half ever goes into images and ImageBuilders.
+        run: |
+          set -euo pipefail
+          K="$HOME/.openwrt-fleet-apk-key/private-key.pem"
+          if [ ! -f "$K" ]; then
+            mkdir -p "$(dirname "$K")"; chmod 700 "$(dirname "$K")"
+            ( umask 077; openssl ecparam -name prime256v1 -genkey -noout -out "$K" )
+            echo "::warning::generated a NEW fleet apk signing key"
+          fi
+          install -m 600 "$K" private-key.pem
+          rm -f public-key.pem
+          openssl ec -in "$K" -pubout 2>/dev/null
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
@@ -222,33 +240,11 @@ jobs:
           # No other device in snapshots/ uses this arch, so this rm -rf only
           # touches MX60W's own feed.
           ARCH_OUT="$TREE/snapshots/packages/powerpc_464fp"
-          rm -rf "$ARCH_OUT"
-          mkdir -p "$ARCH_OUT"
-          cp -rv bin/packages/powerpc_464fp/. "$ARCH_OUT"/
-
-          # This alone still wasn't enough (confirmed the first attempt at
-          # this fix, 2026-09-17, still left owut reporting every base
-          # package "missing to-version" despite the tree above publishing
-          # correctly, curl-reachable, with correct index.json content).
-          # Root cause found by reading the real ASU server source
-          # (github.com/openwrt/asu, asu/main.py's json_v1_arch_index +
-          # util.py's parse_feeds_conf): ASU fetches a SEPARATE
-          # <arch>/feeds.conf file to learn which feed subdirectories
-          # exist at all (`line.split()[1]` per line) -- with none
-          # published, its feed list is empty and it never looks inside
-          # base/, packages/, luci/, etc regardless of their real content.
-          # `make world` does NOT generate this file itself (confirmed:
-          # not present anywhere under bin/packages/<arch>/) -- real
-          # openwrt.org publishes one from its own separate release
-          # tooling. Generate our own from whatever feed subdirectories
-          # this build actually produced (not from feeds.conf.default,
-          # which may list feeds that produced no packages for this target,
-          # or omit "base", which isn't a feeds.conf.default entry at all).
-          for feed_dir in "$ARCH_OUT"/*/; do
-            feed_name=$(basename "$feed_dir")
-            [ -f "$feed_dir/index.json" ] && echo "src-git $feed_name generated"
-          done > "$ARCH_OUT/feeds.conf"
-          echo "Generated feeds.conf:"; cat "$ARCH_OUT/feeds.conf"
+          # Merge, don't replace: another target may publish this same arch.
+          # Rebuilds + signs the indexes and writes the feeds.conf ASU needs.
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/publish-arch-feed.sh \
+            -o "$RUNNER_TEMP/publish-arch-feed.sh"
+          bash "$RUNNER_TEMP/publish-arch-feed.sh" bin/packages/powerpc_464fp "$ARCH_OUT" apm821xx-nand "$PWD"
 
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums

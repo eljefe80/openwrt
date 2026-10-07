@@ -94,6 +94,24 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/fleet-defaults.sh \
             -o target/linux/generic/base-files/etc/uci-defaults/97-fleet-defaults
 
+      - name: Install the fleet's persistent apk signing key
+        working-directory: openwrt-src
+        # Every build signs with the same key (generated once, kept in the
+        # runner's home), so all images and ImageBuilders trust it and the
+        # merged arch feeds can be re-signed (ci/publish-arch-feed.sh). Only
+        # the public half ever goes into images and ImageBuilders.
+        run: |
+          set -euo pipefail
+          K="$HOME/.openwrt-fleet-apk-key/private-key.pem"
+          if [ ! -f "$K" ]; then
+            mkdir -p "$(dirname "$K")"; chmod 700 "$(dirname "$K")"
+            ( umask 077; openssl ecparam -name prime256v1 -genkey -noout -out "$K" )
+            echo "::warning::generated a NEW fleet apk signing key"
+          fi
+          install -m 600 "$K" private-key.pem
+          rm -f public-key.pem
+          openssl ec -in "$K" -pubout 2>/dev/null
+
       - name: Seed target config
         working-directory: openwrt-src
         run: |
@@ -160,11 +178,11 @@ jobs:
           # this, owut reports base packages "missing to-version". Plus the
           # per-arch feeds.conf that ASU's json_v1_arch_index needs.
           ARCH_OUT="$TREE/snapshots/packages/$ARCH"
-          rm -rf "$ARCH_OUT"; mkdir -p "$ARCH_OUT"
-          cp -rv bin/packages/$ARCH/. "$ARCH_OUT"/
-          for feed_dir in "$ARCH_OUT"/*/; do
-            fn=$(basename "$feed_dir"); [ -f "$feed_dir/index.json" ] && echo "src-git $fn generated"
-          done > "$ARCH_OUT/feeds.conf"
+          # Merge, don't replace: another target may publish this same arch.
+          # Rebuilds + signs the indexes and writes the feeds.conf ASU needs.
+          curl -fsSL https://raw.githubusercontent.com/eljefe80/openwrt/master/ci/publish-arch-feed.sh \
+            -o "$RUNNER_TEMP/publish-arch-feed.sh"
+          bash "$RUNNER_TEMP/publish-arch-feed.sh" bin/packages/$ARCH "$ARCH_OUT" alpine-checkpoint "$PWD"
 
           cd "$OUT"
           sha256sum -b openwrt-imagebuilder-*.tar.* > sha256sums
