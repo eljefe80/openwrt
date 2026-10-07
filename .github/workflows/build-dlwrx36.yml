@@ -107,6 +107,23 @@ jobs:
           CONFIG_VERSION_REPO="http://10.203.16.45/snapshots"
           CONFIG_PACKAGE_owut=y
           CONFIG_PACKAGE_openwisp-config=y
+          CONFIG_PACKAGE_openwisp-monitoring=m
+          # Built into the feed (=m), not forced into the CI image: the
+          # packages dlwrx36-0 has installed on top of the defaults, so an
+          # ASU build for it can resolve every one (owut reported them
+          # "missing to-version" 2026-10-07). kmod-qca-nss-dp/qca-ssdk are
+          # gone in master (qualcommax uses upstream drivers now).
+          CONFIG_PACKAGE_luci-ssl=m
+          CONFIG_PACKAGE_luci-app-firewall=m
+          CONFIG_PACKAGE_luci-app-package-manager=m
+          CONFIG_PACKAGE_luci-app-attendedsysupgrade=m
+          CONFIG_PACKAGE_luci-theme-bootstrap=m
+          CONFIG_PACKAGE_dawn=m
+          CONFIG_PACKAGE_umdns=m
+          CONFIG_PACKAGE_tcpdump=m
+          CONFIG_PACKAGE_nano=m
+          CONFIG_PACKAGE_wpad-mbedtls=m
+          CONFIG_PACKAGE_kmod-phy-aquantia=m
           EOF
           make defconfig
 
