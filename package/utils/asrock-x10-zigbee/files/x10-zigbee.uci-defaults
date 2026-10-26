@@ -1,0 +1,24 @@
+#!/bin/sh
+# Expose the CC2630 ZNP as a raw TCP socket for Home Assistant
+# (ZHA or Zigbee2MQTT: socket://<router>:6638).
+
+uci -q get ser2net.x10_zigbee >/dev/null && exit 0
+
+uci batch <<UCI
+set ser2net.x10_zigbee=proxy
+set ser2net.x10_zigbee.enabled='1'
+set ser2net.x10_zigbee.port='6638'
+set ser2net.x10_zigbee.protocol='raw'
+set ser2net.x10_zigbee.timeout='0'
+set ser2net.x10_zigbee.device='/dev/ttyMSM1'
+set ser2net.x10_zigbee.baudrate='115200'
+set ser2net.x10_zigbee.databits='8'
+set ser2net.x10_zigbee.parity='none'
+set ser2net.x10_zigbee.stopbits='1'
+set ser2net.x10_zigbee.rtscts='0'
+set ser2net.x10_zigbee.local='1'
+set ser2net.x10_zigbee.kickolduser='1'
+commit ser2net
+UCI
+
+exit 0

@@ -196,6 +196,21 @@ define Device/aruba_ap-365
 endef
 TARGET_DEVICES += aruba_ap-365
 
+define Device/asrock_x10
+	$(call Device/FitzImage)
+	DEVICE_VENDOR := ASRock
+	DEVICE_MODEL := X10
+	SOC := qcom-ipq4019
+	DEVICE_DTS_CONFIG := config@1
+	KERNEL_SIZE := 4096k
+	IMAGE_SIZE := 29696k
+	IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | \
+		check-size | append-metadata
+	DEVICE_PACKAGES := ipq-wifi-asrock_x10 kmod-i2c-gpio \
+		asrock-x10-zigbee asrock-x10-ir
+endef
+TARGET_DEVICES += asrock_x10
+
 define Device/asus_map-ac1300
 	$(call Device/FitImageLzma)
 	DEVICE_VENDOR := ASUS

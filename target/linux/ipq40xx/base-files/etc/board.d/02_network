@@ -14,6 +14,7 @@ ipq40xx_setup_interfaces()
 	case "$board" in
 	8dev,habanero-dvk|\
 	avm,fritzbox-4040|\
+	asrock,x10|\
 	asus,rt-ac42u|\
 	asus,rt-ac58u|\
 	linksys,ea6350v3|\

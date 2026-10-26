@@ -1,0 +1,9 @@
+#!/bin/sh /etc/rc.common
+# Bring the Zigbee NCP out of reset into its ZNP application before
+# ser2net (START=99) opens /dev/ttyMSM1.
+
+START=98
+
+start() {
+	/usr/sbin/x10-zigbee reset
+}

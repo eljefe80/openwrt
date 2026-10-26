@@ -1,0 +1,65 @@
+#!/bin/sh
+# Control the TI CC2630 Zigbee NCP on the ASRock X10.
+#
+#   gpio18  nRESET (active low)
+#   gpio32  nRESET on SR2 board revisions (stock drives both)
+#   gpio49  ROM bootloader backdoor, CC2630 DIO6, active high,
+#           sampled while the chip comes out of reset
+#
+# The radio itself is on /dev/ttyMSM1, 115200 8N1, no flow control.
+
+RESET_LINES="18 32"
+BSL_LINE=49
+
+find_chip() {
+	gpiodetect | sed -n 's/^\(gpiochip[0-9]*\) \[1000000\.pinctrl\].*/\1/p'
+}
+
+set_lines() {
+	local value="$1"; shift
+	local args="" line
+
+	for line in "$@"; do
+		args="$args $line=$value"
+	done
+	# -t0: set the values and exit; TLMM keeps driving them afterwards
+	gpioset -c "$CHIP" -t0 $args
+}
+
+reset_radio() {
+	local bsl="$1"
+
+	set_lines "$bsl" $BSL_LINE
+	set_lines 0 $RESET_LINES
+	sleep 1
+	set_lines 1 $RESET_LINES
+	sleep 1
+	set_lines 0 $BSL_LINE
+}
+
+stop_ser2net() {
+	[ -x /etc/init.d/ser2net ] && /etc/init.d/ser2net stop
+}
+
+CHIP="$(find_chip)"
+[ -n "$CHIP" ] || {
+	echo "x10-zigbee: TLMM gpiochip not found" >&2
+	exit 1
+}
+
+case "$1" in
+reset)
+	reset_radio 0
+	;;
+bootloader)
+	# Leaves the CC2630 in its ROM serial bootloader for reflashing
+	# (e.g. cc2538-bsl.py over /dev/ttyMSM1). ser2net must not hold the
+	# port meanwhile; run "x10-zigbee reset" and restart ser2net after.
+	stop_ser2net
+	reset_radio 1
+	;;
+*)
+	echo "usage: $0 reset|bootloader" >&2
+	exit 1
+	;;
+esac
